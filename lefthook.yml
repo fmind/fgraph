@@ -1,0 +1,31 @@
+# Git hooks delegate to mise tasks so hooks and CI run the exact same checks.
+# Priorities order execution (lower first) since lefthook sorts alphabetically:
+# 10 formatters -> 20 staged secret scan -> 30 static checks.
+pre-commit:
+  parallel: false
+  commands:
+    format:dprint:
+      glob: "*.{json,md,toml,yaml,yml}"
+      priority: 10
+      run: mise run format:dprint {staged_files}
+      stage_fixed: true
+    format:python:
+      glob: "*.py"
+      priority: 10
+      run: mise run format:python
+      stage_fixed: true
+    format:go:
+      glob: "*.go"
+      priority: 10
+      run: mise run format:go
+      stage_fixed: true
+    check:leaks:
+      priority: 20
+      run: mise run check:leaks --staged
+    check:
+      priority: 30
+      run: mise run check
+pre-push:
+  commands:
+    test:
+      run: mise run test

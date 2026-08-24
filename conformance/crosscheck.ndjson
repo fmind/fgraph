@@ -1,0 +1,5 @@
+{"id": "ada", "person/name": "Ada Lovelace", "person/born": 1815}
+{"id": "grace", "person/name": "Grace Hopper"}
+{"id": "ada", "person/knows": {"ref": "grace"}}
+{"id": "ada", "person/born": 1816}
+["retract", "grace", "person/name", "Grace Hopper"]

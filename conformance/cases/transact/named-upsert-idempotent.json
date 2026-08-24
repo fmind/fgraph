@@ -1,0 +1,15 @@
+{
+  "name": "transact/named-upsert-idempotent",
+  "comment": "Re-asserting an already-live identical fact is a no-op: no transaction is allocated (tx = null) and the file is unchanged — agents can hammer the same facts safely.",
+  "steps": [
+    { "tx": { "id": "ada", "person/name": "Ada" }, "expect": { "tx": 67 } },
+    { "tx": { "id": "ada", "person/name": "Ada" }, "expect": { "tx": null } },
+    {
+      "facts": true,
+      "expect": [
+        [26, 67, 1, 1767225601000000, 5, 67, null],
+        [27, 65, 66, "Ada", 4, 67, null]
+      ]
+    }
+  ]
+}

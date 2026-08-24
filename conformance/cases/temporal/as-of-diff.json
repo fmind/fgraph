@@ -1,0 +1,34 @@
+{
+  "name": "temporal/as-of-diff",
+  "comment": "Time travel: at(tx) reconstructs past state via the visibility predicate (tx <= T AND (rx IS NULL OR rx > T)); diff returns what changed in a window. Allocation: 'ada'=65, 'person/city'=66, tx 67 then 68.",
+  "steps": [
+    { "tx": { "id": "ada", "person/city": "London" }, "expect": { "tx": 67 } },
+    { "tx": { "id": "ada", "person/city": "Lyon" }, "expect": { "tx": 68 } },
+    { "entity": "ada", "expect": { "person/city": "Lyon" } },
+    {
+      "at": 67,
+      "steps": [
+        { "entity": "ada", "expect": { "person/city": "London" } },
+        {
+          "q": { "find": ["?c"], "where": [["ada", "person/city", "?c"]] },
+          "expect": { "columns": ["?c"], "rows": [["London"]] }
+        }
+      ]
+    },
+    {
+      "diff": [67, 68],
+      "expect": {
+        "asserted": [
+          {
+            "e": "ada",
+            "a": "person/city",
+            "v": "Lyon",
+            "tx": 68,
+            "...": "tx-metadata facts included; filled exactly during M4"
+          }
+        ],
+        "retracted": [{ "e": "ada", "a": "person/city", "v": "London", "tx": 67, "rx": 68 }]
+      }
+    }
+  ]
+}

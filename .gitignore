@@ -1,0 +1,30 @@
+# environment
+.env
+
+# python implementation
+*.py[co]
+__pycache__/
+python/.cache/
+python/.coverage
+python/.pytest_cache/
+python/.ruff_cache/
+python/.ty_cache/
+python/.venv/
+python/dist/
+python/htmlcov/
+
+# go implementation
+go/bin/
+go/coverage.out
+
+# docs site (hugo)
+docs/.hugo_build.lock
+docs/public/
+docs/resources/_gen/
+docs/tmp/
+
+# local databases and scratch
+*.db
+*.db-shm
+*.db-wal
+tmp/

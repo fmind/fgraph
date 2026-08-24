@@ -1,0 +1,178 @@
+# fgraph monorepo task runner — the single source of truth for tools and tasks.
+# Git hooks (lefthook.yml) and CI reuse these exact tasks; see AGENTS.md and SPEC.md.
+# The python/, go/, and docs/ tasks activate as each stack is scaffolded (SPEC.md M0).
+
+[settings.task]
+run_auto_install = false
+
+[tools]
+dprint = "latest"
+gitleaks = "latest"
+go = "latest"
+golangci-lint = "latest"
+gotestsum = "latest"
+hugo-extended = "latest"
+lefthook = "latest"
+lychee = "latest"
+uv = "latest"
+
+[tasks.all]
+alias = "a"
+description = "Format, check, test, and build the whole project"
+run = ["mise run format", "mise run check", "mise run test", "mise run build"]
+
+[tasks.install]
+alias = "i"
+description = "Install development dependencies and git hooks"
+depends = ["install:python", "install:go", "install:docs"]
+run = "lefthook install"
+
+[tasks."install:python"]
+description = "Sync the Python virtualenv (uv)"
+dir = "python"
+run = "uv sync"
+
+[tasks."install:go"]
+description = "Tidy Go modules and download dependencies"
+dir = "go"
+run = "go mod tidy"
+
+[tasks."install:docs"]
+description = "Download Hugo modules (Hextra theme)"
+dir = "docs"
+run = "hugo mod get"
+
+[tasks.format]
+alias = "f"
+description = "Format all sources and documents"
+depends = ["format:dprint", "format:python", "format:go"]
+
+[tasks."format:dprint"]
+description = "Format JSON, Markdown, TOML, YAML with dprint"
+run = "dprint fmt"
+
+[tasks."format:python"]
+description = "Format Python sources and imports (ruff)"
+# Runs from the repo root via --project so lefthook globs and direct calls agree.
+run = [
+  "uv run --project python ruff check --select=I --fix --force-exclude python",
+  "uv run --project python ruff format --force-exclude python",
+]
+
+[tasks."format:go"]
+description = "Format Go sources and imports (goimports + gofumpt)"
+dir = "go"
+# Flags must mirror go/.golangci.yml: local-prefixes and extra-rules are format policy.
+run = ["go tool goimports -local github.com/fmind/fgraph -w .", "go tool gofumpt -extra -w ."]
+
+[tasks.check]
+alias = "c"
+description = "Run all static checks in parallel"
+depends = ["check:format", "check:leaks", "check:python", "check:go", "check:docs"]
+
+[tasks."check:format"]
+alias = "cf"
+description = "Check config/markup formatting (dprint)"
+run = "dprint check"
+
+[tasks."check:leaks"]
+alias = "cs"
+description = "Audit git history for leaked secrets (gitleaks)"
+run = "gitleaks git --log-opts=\"--max-count=100\" --verbose"
+
+[tasks."check:python"]
+description = "Lint, type-check, and audit the Python implementation"
+dir = "python"
+run = [
+  "uv run validate-pyproject pyproject.toml",
+  "uv run ruff format --check",
+  "uv run ruff check",
+  "uv run ty check",
+  "uv run pip-audit --skip-editable --cache-dir .cache/pip-audit",
+  "uv lock --check",
+]
+
+[tasks."check:go"]
+description = "Lint and audit the Go implementation"
+dir = "go"
+run = ["golangci-lint run ./...", "go tool govulncheck ./..."]
+
+[tasks."check:docs"]
+description = "Build the docs with warnings promoted to errors"
+dir = "docs"
+# Git info is display metadata, not content: skipping it keeps this check green on
+# fresh repos (no commits yet) where reading the git log warns and would panic.
+env = { HUGO_ENABLEGITINFO = "false" }
+run = "hugo build --destination tmp/check --logLevel warn --panicOnWarning --printPathWarnings"
+
+[tasks.test]
+alias = "t"
+description = "Run all test suites and the cross-implementation check"
+depends = ["test:python", "test:go", "test:docs", "test:cross"]
+
+[tasks."test:python"]
+description = "Run the Python suite with the 95% coverage gate"
+dir = "python"
+run = "uv run pytest --cov --cov-fail-under=95"
+
+[tasks."test:go"]
+description = "Run the Go suite (race) with the 95% coverage gate"
+dir = "go"
+run = [
+  "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./...",
+  '''go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/, "", $3); if ($3 + 0.0 < 95.0) { printf "total coverage %s%% is below the 95%% gate\n", $3; exit 1 }}' ''',
+]
+
+[tasks."test:docs"]
+description = "Build the docs and verify all internal links (lychee)"
+dir = "docs"
+# Check a root-URL build: subpath deployments (GitHub project pages) emit
+# /<repo>/-prefixed links that --root-dir cannot resolve against public/.
+run = [
+  "hugo build --destination tmp/test --baseURL http://localhost/ --quiet",
+  "lychee --offline --root-dir {{config_root}}/docs/tmp/test --no-progress 'tmp/test/**/*.html'",
+]
+
+[tasks."test:cross"]
+description = "Verify a Python-written file reads identically in Go, and back"
+run = "sh scripts/crosscheck.sh"
+
+[tasks.build]
+alias = "b"
+description = "Build all distributable artifacts"
+depends = ["build:python", "build:go", "build:docs"]
+
+[tasks."build:python"]
+description = "Build the Python distribution (wheel + sdist)"
+dir = "python"
+run = "uv build"
+
+[tasks."build:go"]
+description = "Compile the fgraph CLI binary"
+dir = "go"
+sources = ["go.mod", "go.sum", "**/*.go"]
+outputs = ["bin/fgraph"]
+run = "go build -o bin/fgraph ./cmd/fgraph"
+
+[tasks."build:docs"]
+description = "Build the production docs site (minified, garbage-collected)"
+dir = "docs"
+sources = ["hugo.yaml", "content/**/*", "layouts/**/*", "static/**/*"]
+outputs = ["public/index.html"]
+run = "hugo build --gc --minify"
+
+[tasks.clean]
+alias = "n"
+description = "Remove build artifacts, caches, and generated resources"
+run = [
+  "rm -rf python/.cache python/.pytest_cache python/.ruff_cache python/.coverage python/htmlcov python/dist",
+  "rm -rf go/bin go/coverage.out",
+  "rm -rf docs/public docs/tmp docs/resources/_gen docs/.hugo_build.lock",
+  "find . -type d -name __pycache__ -exec rm -rf {} +",
+]
+
+[tasks.watch]
+alias = "w"
+description = "Serve the docs site with live reload"
+dir = "docs"
+run = "hugo server --buildDrafts --noHTTPCache --disableFastRender"

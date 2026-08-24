@@ -1,0 +1,11 @@
+{
+  "name": "errors/conflict-card-one",
+  "comment": "Two different values for the same cardinality-one (e, a) within one transaction is a Conflict error (never last-wins), and a failed transaction leaves no trace in the file.",
+  "steps": [
+    {
+      "tx": [["assert", "ada", "person/age", 40], ["assert", "ada", "person/age", 41]],
+      "error": "Conflict"
+    },
+    { "facts": true, "expect": [] }
+  ]
+}
