@@ -190,19 +190,19 @@ At 100,000 entities:
 
 | Runtime    | Ingest entities/s | Point get | Scalar filter | Connected join | Keyword search | Exact vector search |
 | ---------- | ----------------: | --------: | ------------: | -------------: | -------------: | ------------------: |
-| Python     |             3,737 |    187 ms |        220 ms |         329 ms |         711 ms |              689 ms |
-| Go         |             3,801 |    118 ms |        133 ms |         213 ms |         636 ms |              621 ms |
-| TypeScript |             3,852 |    256 ms |        212 ms |         236 ms |         681 ms |              522 ms |
+| Python     |             3,161 |    240 ms |        236 ms |         393 ms |         754 ms |              735 ms |
+| Go         |             3,762 |    150 ms |        147 ms |         231 ms |         823 ms |              629 ms |
+| TypeScript |             3,753 |    218 ms |        263 ms |         288 ms |         707 ms |              553 ms |
 
 | Runtime    | Snapshot | Restore | Event tail | Event apply |
 | ---------- | -------: | ------: | ---------: | ----------: |
-| Python     |   6.55 s | 24.69 s |     3.05 s |     38.65 s |
-| Go         |   6.17 s | 24.33 s |     4.04 s |     32.37 s |
-| TypeScript |  13.54 s | 20.73 s |     3.95 s |     20.82 s |
+| Python     |   7.31 s | 30.58 s |     4.69 s |     42.59 s |
+| Go         |   8.06 s | 23.03 s |     3.94 s |     28.02 s |
+| TypeScript |  11.76 s | 23.25 s |     4.22 s |     19.91 s |
 
 The common logical state occupied 92.02 MiB; its snapshot was 60.53 MiB and its event stream 22.52 MiB. Vector search is intentionally exact over the 5,000 vectors, not ANN. These measurements validate the tested 100k envelope, not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and hardware affect the numbers.
 
-This release run was generated on 2026-08-26 from clean source commit [`6cba5c3`](https://github.com/fmind/fgraph/commit/6cba5c3706e0f2c1dcfcdd8d5c6f8d23832c123d) and source digest `sha256:0949e1b096dfadd82102486859dc550818864e083a7aedf5d01f6ce52618a2f9`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
+This release run was generated on 2026-08-26 from clean source commit [`2c38061`](https://github.com/fmind/fgraph/commit/2c380613348a2b0753539e49b3533e0ee7aecc19) and source digest `sha256:e72df5222bb6af2e07c27192e4c7378d7e12a1bb43946aedb3f2716530105e4f`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
 
 Reproduce the complete run with `mise run benchmark`. The harness has no timing pass/fail threshold and writes the [raw NDJSON observations](benchmarks/latest.ndjson) plus both accessible SVG charts.
 
