@@ -112,7 +112,32 @@ def _typescript_smoke(work: Path, version: str) -> None:
 
     consumer = work / "npm-consumer"
     consumer.mkdir()
-    _run(["npm", "install", "--offline", "--no-audit", "--no-fund", archive], cwd=consumer)
+    local_spec = f"file:{Path(os.path.relpath(archive, consumer)).as_posix()}"
+    dependencies = {"@fmind/fgraph": local_spec}
+    consumer_manifest = {
+        "name": "fgraph-artifact-smoke",
+        "version": version,
+        "private": True,
+        "dependencies": dependencies,
+        "allowScripts": {"better-sqlite3@13.0.3": True},
+    }
+    project_lock = json.loads((ROOT / "typescript" / "package-lock.json").read_text(encoding="utf-8"))
+    packages = dict(project_lock["packages"])
+    packaged_root = dict(packages[""])
+    packaged_root.pop("devDependencies", None)
+    packaged_root["resolved"] = local_spec
+    packages[""] = {"name": consumer_manifest["name"], "version": version, "dependencies": dependencies}
+    packages["node_modules/@fmind/fgraph"] = packaged_root
+    consumer_lock = {
+        "name": consumer_manifest["name"],
+        "version": version,
+        "lockfileVersion": project_lock["lockfileVersion"],
+        "requires": True,
+        "packages": packages,
+    }
+    (consumer / "package.json").write_text(json.dumps(consumer_manifest, indent=2) + "\n", encoding="utf-8")
+    (consumer / "package-lock.json").write_text(json.dumps(consumer_lock, indent=2) + "\n", encoding="utf-8")
+    _run(["npm", "ci", "--offline", "--omit=dev", "--no-audit", "--no-fund"], cwd=consumer)
     smoke = consumer / "smoke.mjs"
     smoke.write_text(
         """import { connect, version } from "@fmind/fgraph";

@@ -16,6 +16,60 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+const embeddingHelperModeEnv = "FGRAPH_TEST_EMBED_HELPER_MODE"
+
+func TestMain(m *testing.M) {
+	mode := os.Getenv(embeddingHelperModeEnv)
+	if mode == "" {
+		os.Exit(m.Run())
+	}
+
+	exitCode := 0
+	var output []byte
+	switch mode {
+	case "success":
+		output = []byte("[1,0]\n")
+	case "failure":
+		exitCode = 7
+	case "argument":
+		if len(os.Args) != 2 {
+			exitCode = 2
+		} else {
+			output = fmt.Appendf(nil, "[%s,0]\n", os.Args[1])
+		}
+	case "slow":
+		time.Sleep(time.Second)
+		output = []byte("[1,0]\n")
+	case "oversize":
+		output = bytes.Repeat([]byte("0"), (1<<20)+1)
+	default:
+		exitCode = 2
+	}
+	if len(output) != 0 {
+		if _, err := os.Stdout.Write(output); err != nil {
+			exitCode = 2
+		}
+	}
+	os.Exit(exitCode)
+}
+
+func embeddingHelperCommand(t *testing.T, mode string, args ...string) string {
+	t.Helper()
+	t.Setenv(embeddingHelperModeEnv, mode)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) == 0 {
+		return executable
+	}
+	command, err := json.Marshal(append([]string{executable}, args...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(command)
+}
+
 func runCLIForTest(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -233,11 +287,7 @@ func TestCLIWorkflow(t *testing.T) {
 		t.Fatalf("version = %q, %v", version, err)
 	}
 
-	embed := filepath.Join(dir, "embed")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(embed, []byte("#!/bin/sh\nprintf '[1,0]\\n'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	embed := embeddingHelperCommand(t, "success")
 	if _, err := command("", "search", "compiler", "--embed-cmd", embed, "--vector-attribute", "person/vector"); err != nil {
 		t.Fatal(err)
 	}
@@ -305,21 +355,13 @@ func TestCommandEmbedderFailuresAreTypedAndNoShell(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	failing := filepath.Join(dir, "failing")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(failing, []byte("#!/bin/sh\nexit 7\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	failing := embeddingHelperCommand(t, "failure")
 	if _, err := commandEmbedder(failing)(ctx, "text"); !errors.Is(err, ErrType) {
 		t.Fatalf("failing embedder error = %v", err)
 	}
 
-	success := filepath.Join(dir, "success")
+	success := embeddingHelperCommand(t, "success")
 	marker := filepath.Join(dir, "must-not-exist")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(success, []byte("#!/bin/sh\nprintf '[1,0]\\n'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	vector, embedErr := commandEmbedder(success)(ctx, "text")
 	if embedErr != nil || len(vector) != 2 || vector[0] != 1 {
 		t.Fatalf("embedder vector = %v, %v", vector, embedErr)
@@ -331,16 +373,8 @@ func TestCommandEmbedderFailuresAreTypedAndNoShell(t *testing.T) {
 		t.Fatalf("command string was interpreted by a shell: %v", err)
 	}
 
-	withArg := filepath.Join(dir, "with-arg")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(withArg, []byte("#!/bin/sh\nprintf '[%s,0]\\n' \"$1\"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	argv, marshalErr := json.Marshal([]string{withArg, "2"})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	vector, embedErr = commandEmbedder(string(argv))(ctx, "text")
+	withArg := embeddingHelperCommand(t, "argument", "2")
+	vector, embedErr = commandEmbedder(withArg)(ctx, "text")
 	if embedErr != nil || len(vector) != 2 || vector[0] != 2 {
 		t.Fatalf("JSON argv embedder = %v, %v", vector, embedErr)
 	}
@@ -350,22 +384,14 @@ func TestCommandEmbedderFailuresAreTypedAndNoShell(t *testing.T) {
 		}
 	}
 
-	slow := filepath.Join(dir, "slow")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(slow, []byte("#!/bin/sh\nsleep 1\nprintf '[1,0]\\n'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	slow := embeddingHelperCommand(t, "slow")
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
 	if _, err := commandEmbedder(slow)(timeoutCtx, "text"); !errors.Is(err, ErrType) {
 		t.Fatalf("timed-out embedder error = %v", err)
 	}
 
-	oversize := filepath.Join(dir, "oversize")
-	// #nosec G306 -- this private test fixture must be executable by commandEmbedder.
-	if err := os.WriteFile(oversize, []byte("#!/bin/sh\ndd if=/dev/zero bs=1048577 count=1 2>/dev/null\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	oversize := embeddingHelperCommand(t, "oversize")
 	if _, err := commandEmbedder(oversize)(ctx, "text"); !errors.Is(err, ErrType) {
 		t.Fatalf("oversized embedder output error = %v", err)
 	}

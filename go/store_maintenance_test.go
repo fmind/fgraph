@@ -46,6 +46,9 @@ func TestOpenFormatValidationAndLifecycleEdges(t *testing.T) {
 	if got, err := sqliteDSN("relative.db", true); err != nil || !strings.HasPrefix(got, "file:") || !strings.Contains(got, "mode=ro") {
 		t.Fatalf("readonly DSN = %q, %v", got, err)
 	}
+	if got := sqliteFileURI("C:/Users/fgraph/graph.db", "mode=ro"); got != "file:///C:/Users/fgraph/graph.db?mode=ro" {
+		t.Fatalf("Windows readonly DSN = %q", got)
+	}
 
 	makeSQLite := func(t *testing.T, setup ...string) string {
 		t.Helper()

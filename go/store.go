@@ -276,10 +276,18 @@ func immutableSQLiteDSN(path string) (string, bool) {
 			return "", false
 		}
 	}
-	u := &url.URL{Scheme: "file", Path: realPath}
 	query := url.Values{"immutable": {"1"}, "mode": {"ro"}}
-	u.RawQuery = query.Encode()
-	return u.String(), true
+	return sqliteFileURI(realPath, query.Encode()), true
+}
+
+func sqliteFileURI(path, rawQuery string) string {
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		// A Windows drive must be a URI path (/C:/...), not an authority (C:...).
+		uriPath = "/" + uriPath
+	}
+	u := &url.URL{Scheme: "file", Path: uriPath, RawQuery: rawQuery}
+	return u.String()
 }
 
 func sqliteDSN(path string, readOnly bool) (string, error) {
@@ -290,8 +298,7 @@ func sqliteDSN(path string, readOnly bool) (string, error) {
 	if err != nil {
 		return "", wrap(ErrFormat, err, "cannot resolve database path %q; use a valid file path", path)
 	}
-	u := &url.URL{Scheme: "file", Path: abs, RawQuery: "mode=ro"}
-	return u.String(), nil
+	return sqliteFileURI(abs, "mode=ro"), nil
 }
 
 func (s *store) configure(ctx context.Context, memory bool) error {
