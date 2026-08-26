@@ -355,12 +355,18 @@ async function dispatch(
     const embedCommand = option(args, "--embed-cmd");
     if (args.length > 0) usage(`mcp does not accept ${args.join(" ")}`);
     const db = open(path, !write, queryBudget);
-    // Keep the optional MCP SDK out of short-lived commands such as get and q.
-    const { runMcp } = await import("./mcp.js");
-    runMcp(
-      db,
-      embedCommand === undefined ? { write } : { write, embedCommand },
-    );
+    try {
+      // Keep the optional MCP SDK out of short-lived commands such as get and q.
+      const { runMcp } = await import("./mcp.js");
+      runMcp(
+        db,
+        embedCommand === undefined ? { write } : { write, embedCommand },
+      );
+    } catch (error) {
+      // A failed server handoff leaves the CLI responsible for releasing SQLite.
+      db.close();
+      throw error;
+    }
     return;
   }
   const commands = new Set([

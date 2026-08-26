@@ -679,6 +679,13 @@ describe("CLI", () => {
     const database = join(directory, "mcp.db");
     expect((await invoke("init", "--db", database)).code).toBe(0);
     const mockedRunMcp = vi.mocked(runMcp);
+    const stopImmediately: typeof runMcp = (db) => {
+      db.close();
+      return { close: async () => undefined };
+    };
+    mockedRunMcp
+      .mockImplementationOnce(stopImmediately)
+      .mockImplementationOnce(stopImmediately);
 
     expect(await invoke("mcp", "--db", database)).toMatchObject({ code: 0 });
     expect(mockedRunMcp).toHaveBeenLastCalledWith(expect.anything(), {
@@ -702,20 +709,25 @@ describe("CLI", () => {
       code: 2,
     });
 
-    mockedRunMcp.mockImplementationOnce(() => {
+    let failedDb: Parameters<typeof runMcp>[0] | undefined;
+    mockedRunMcp.mockImplementationOnce((db) => {
+      failedDb = db;
       throw new Error("adapter failed");
     });
     expect(await invoke("mcp", "--write", "--db", database)).toMatchObject({
       code: 1,
       stderr: expect.stringContaining("Error: adapter failed"),
     });
-    mockedRunMcp.mockImplementationOnce(() => {
+    expect(failedDb?._connection.open).toBe(false);
+    mockedRunMcp.mockImplementationOnce((db) => {
+      failedDb = db;
       throw "non-error adapter failure";
     });
     expect(await invoke("mcp", "--write", "--db", database)).toMatchObject({
       code: 1,
       stderr: expect.stringContaining("Error: non-error adapter failure"),
     });
+    expect(failedDb?._connection.open).toBe(false);
   });
 
   it("validates every command arity and option boundary", async () => {
