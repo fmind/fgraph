@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, InputRequiredResult
+from typer._click._compat import strip_ansi
 from typer.testing import CliRunner
 
 import fgraph
@@ -137,8 +138,9 @@ def test_cli_global_options_and_human_output(tmp_path: Path) -> None:
     assert machine.stdout.count("\n") == 1
     help_result = runner.invoke(app, ["--help"])
     assert help_result.exit_code == 0
-    assert "--db" in help_result.stdout
-    assert "--json" in help_result.stdout
+    help_text = strip_ansi(help_result.stdout)
+    assert "--db" in help_text
+    assert "--json" in help_text
 
 
 def test_cli_shape_validation_vector_model_and_receipt_options(tmp_path: Path) -> None:

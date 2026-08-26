@@ -197,7 +197,7 @@ def test_conformance_matcher_contract(
 def test_conformance(case_path: Path) -> None:
     # Conformance fixtures are trusted test programs and may intentionally
     # contain an over-limit value to exercise a public decoding boundary.
-    case = json.loads(case_path.read_text())
+    case = json.loads(case_path.read_text(encoding="utf-8"))
     with fgraph.connect(":memory:", clock=ConformanceClock()) as db:
         for step in case["steps"]:
             _run(db, step)

@@ -558,7 +558,10 @@ def test_cli_file_embed_mcp_tail_and_main_paths(
     runner = CliRunner()
     database = tmp_path / "cli.db"
     payload = tmp_path / "payload.json"
-    payload.write_text('{"id":"file","file/text":"from file","file/embedding":{"vector":[1,0]}}')
+    payload.write_text(
+        '{"id":"file","file/text":"from file","file/embedding":{"vector":[1,0]}}',
+        encoding="utf-8",
+    )
     result = runner.invoke(cli.app, ["add", f"@{payload}", "--db", str(database), "--json"])
     assert result.exit_code == 0
     empty = runner.invoke(cli.app, ["add", "-", "--db", str(database)], input="")

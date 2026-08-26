@@ -198,23 +198,29 @@ def _schema_page(
 def _kill(process: subprocess.Popen[bytes]) -> None:
     # The embedder owns its isolated POSIX session, so helpers inheriting the
     # stdout pipe cannot outlive the same deadline and hold this request open.
-    if hasattr(os, "killpg"):
+    if os.name == "nt":
+        # A Windows process group lets CTRL+BREAK reach descendants that still
+        # own the stdout pipe after the configured command has exited.
+        with suppress(OSError):
+            os.kill(process.pid, signal.CTRL_BREAK_EVENT)
+    elif hasattr(os, "killpg"):
         with suppress(OSError):
             os.killpg(process.pid, signal.SIGKILL)
-    # Windows ignores start_new_session; this still terminates the configured
-    # command itself, and is a harmless fallback after a POSIX group kill.
+    # This terminates the configured command and is harmless after a group kill.
     with suppress(OSError):
         process.kill()
 
 
 def _embed_output(arguments: list[str], text: str) -> tuple[int, str]:
+    windows_group = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     try:
         process = subprocess.Popen(  # noqa: S603
             arguments,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            creationflags=windows_group,
+            start_new_session=os.name != "nt",
         )
     except OSError as exc:
         raise FGraphTypeError(

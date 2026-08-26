@@ -80,11 +80,11 @@ description = "Format JSON, Markdown, TOML, YAML with dprint"
 run = "dprint fmt"
 
 [tasks."format:python"]
-description = "Format Python sources and imports (ruff)"
-# Runs from the repo root via --project so lefthook globs and direct calls agree.
+description = "Format Python sources, examples, and harnesses (ruff)"
+# Pin the project config explicitly so developer-level Ruff settings cannot change the result.
 run = [
-  "uv run --project python ruff check --select=I --fix --force-exclude python examples/python",
-  "uv run --project python ruff format --force-exclude python examples/python",
+  "uv run --project python ruff check --config python/pyproject.toml --select=I --fix --force-exclude python examples/python scripts",
+  "uv run --project python ruff format --config python/pyproject.toml --force-exclude python examples/python scripts",
 ]
 
 [tasks."format:go"]
@@ -172,8 +172,8 @@ run = [
 [tasks."check:scripts"]
 description = "Lint the repository test, benchmark, and release harnesses"
 run = [
-  "uv run --project python ruff format --check scripts/benchmark.py scripts/check_versions.py scripts/deterministic_zip.py scripts/differential.py scripts/smoke_release_archive.py scripts/test_packages.py",
-  "uv run --project python ruff check scripts/benchmark.py scripts/check_versions.py scripts/deterministic_zip.py scripts/differential.py scripts/smoke_release_archive.py scripts/test_packages.py",
+  "uv run --project python ruff format --isolated --line-length 120 --target-version py312 --check scripts",
+  "uv run --project python ruff check --isolated --line-length 120 --target-version py312 --select E4,E7,E9,F,I scripts",
   "uv lock --check --script scripts/benchmark.py",
   "uv lock --check --script scripts/check_versions.py",
   "uv lock --check --script scripts/deterministic_zip.py",

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from typer._click._compat import strip_ansi
 from typer._click.exceptions import Exit as TyperExit
 from typer.testing import CliRunner
 
@@ -64,8 +65,9 @@ def test_cli_excise_requires_idempotency_and_basis_options(arguments: list[str],
     result = runner.invoke(cli.app, arguments)
 
     assert result.exit_code == 2
-    assert missing in result.output
-    assert "Missing option" in result.output
+    output = strip_ansi(result.output)
+    assert missing in output
+    assert "Missing option" in output
 
 
 def test_cli_explain_datoms_receipt_snapshot_restore_and_excise(tmp_path: Path) -> None:

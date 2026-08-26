@@ -95,6 +95,9 @@ select = [
 ]
 ignore = ["ASYNC240", "E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["fgraph"]
+
 [tool.ruff.lint.per-file-ignores]
 "src/fgraph/__init__.py" = ["A004"] # Public error name is normative.
 "src/fgraph/errors.py" = ["N818"] # SPEC error taxonomy omits the Error suffix.

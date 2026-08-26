@@ -12,7 +12,7 @@ import re
 import struct
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fgraph.errors import TooLarge
@@ -26,6 +26,7 @@ INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 INSTANT_MIN = -62_135_596_800_000_000
 INSTANT_MAX = 253_402_300_799_999_999
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 RFC3339_PATTERN = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})"
 )
@@ -328,7 +329,9 @@ def instant_text(microseconds: int) -> str:
     """Render integer UTC microseconds as fixed-width RFC 3339."""
     microseconds = _instant(microseconds)
     seconds, micros = divmod(microseconds, 1_000_000)
-    moment = datetime.fromtimestamp(seconds, UTC)
+    # Datetime arithmetic supports the full normative range on Windows too;
+    # fromtimestamp delegates to a platform C runtime that may reject year 1.
+    moment = _UNIX_EPOCH + timedelta(seconds=seconds)
     rendered = (
         f"{moment.year:04d}-{moment.month:02d}-{moment.day:02d}T"
         f"{moment.hour:02d}:{moment.minute:02d}:{moment.second:02d}"
