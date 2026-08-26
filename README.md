@@ -190,19 +190,19 @@ At 100,000 entities:
 
 | Runtime    | Ingest entities/s | Point get | Scalar filter | Connected join | Keyword search | Exact vector search |
 | ---------- | ----------------: | --------: | ------------: | -------------: | -------------: | ------------------: |
-| Python     |             3,209 |    256 ms |        289 ms |         316 ms |         812 ms |              791 ms |
-| Go         |             3,696 |    150 ms |        172 ms |         237 ms |         715 ms |              693 ms |
-| TypeScript |             3,579 |    283 ms |        231 ms |         307 ms |         731 ms |              710 ms |
+| Python     |             3,737 |    187 ms |        220 ms |         329 ms |         711 ms |              689 ms |
+| Go         |             3,801 |    118 ms |        133 ms |         213 ms |         636 ms |              621 ms |
+| TypeScript |             3,852 |    256 ms |        212 ms |         236 ms |         681 ms |              522 ms |
 
 | Runtime    | Snapshot | Restore | Event tail | Event apply |
 | ---------- | -------: | ------: | ---------: | ----------: |
-| Python     |   7.61 s | 28.43 s |     4.19 s |     48.57 s |
-| Go         |   7.43 s | 22.80 s |     4.18 s |     30.17 s |
-| TypeScript |  13.27 s | 21.50 s |     3.87 s |     22.10 s |
+| Python     |   6.55 s | 24.69 s |     3.05 s |     38.65 s |
+| Go         |   6.17 s | 24.33 s |     4.04 s |     32.37 s |
+| TypeScript |  13.54 s | 20.73 s |     3.95 s |     20.82 s |
 
 The common logical state occupied 92.02 MiB; its snapshot was 60.53 MiB and its event stream 22.52 MiB. Vector search is intentionally exact over the 5,000 vectors, not ANN. These measurements validate the tested 100k envelope, not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and hardware affect the numbers.
 
-This review run was generated on 2026-08-26 from source digest `sha256:ac2d990434961b2901af19d47c31770f1f749fc5f2127590871c25d25ddc4621`. Its provenance deliberately records `source_tree: "dirty"` because the v1 candidate has not been committed. The release gate requires the same workload to be rerun from the authorized clean source commit; do not treat this review run as published release evidence.
+This release run was generated on 2026-08-26 from clean source commit [`6cba5c3`](https://github.com/fmind/fgraph/commit/6cba5c3706e0f2c1dcfcdd8d5c6f8d23832c123d) and source digest `sha256:0949e1b096dfadd82102486859dc550818864e083a7aedf5d01f6ce52618a2f9`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
 
 Reproduce the complete run with `mise run benchmark`. The harness has no timing pass/fail threshold and writes the [raw NDJSON observations](benchmarks/latest.ndjson) plus both accessible SVG charts.
 
