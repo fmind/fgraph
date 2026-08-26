@@ -1,0 +1,128 @@
+{
+  "name": "query/pull-reverse",
+  "comment": "Pull traverses forward and reverse references with cycle-safe depth limits and deterministic cardinality-many rendering.",
+  "steps": [
+    { "declare": { "attr": "person/knows", "ref": true, "many": true } },
+    { "tx": { "id": "ada", "person/name": "Ada", "person/knows": { "ref": "grace" } } },
+    { "tx": { "id": "grace", "person/name": "Grace", "person/knows": { "ref": "ada" } } },
+    {
+      "q": {
+        "find": [["pull", "?e", ["person/name", { "person/knows": ["person/name"] }, "person/_knows"]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "expect": {
+        "columns": ["pull(?e)"],
+        "rows": [
+          [
+            {
+              "person/name": "Ada",
+              "person/knows": [{ "person/name": "Grace" }],
+              "person/_knows": [{ "ref": "grace" }]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", ["*", { "person/knows": ["person/name"] }, "person/_knows"]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "expect": {
+        "columns": ["pull(?e)"],
+        "rows": [
+          [
+            {
+              "person/name": "Ada",
+              "person/knows": [{ "person/name": "Grace" }],
+              "person/_knows": [{ "ref": "grace" }]
+            }
+          ]
+        ]
+      }
+    },
+    { "entity": "ada", "expect": { "person/name": "Ada", "person/knows": [{ "ref": "grace" }] } },
+    { "tx": { "id": "order-z", "person/name": "Z" } },
+    { "tx": { "id": "order-target", "person/name": "Target" } },
+    {
+      "tx": {
+        "id": "order-a",
+        "person/knows": { "ref": "order-target" }
+      }
+    },
+    {
+      "tx": {
+        "id": "order-z",
+        "person/knows": { "ref": "order-target" }
+      }
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", ["person/_knows"]]],
+        "where": [["?e", "person/name", "Target"]]
+      },
+      "expect": {
+        "columns": ["pull(?e)"],
+        "rows": [
+          [{ "person/_knows": [{ "ref": "order-a" }, { "ref": "order-z" }] }]
+        ]
+      }
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", [42]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [
+          [
+            "pull",
+            "?e",
+            [{ "person/knows": ["person/name"], "person/name": ["person/name"] }]
+          ]
+        ],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", [{ "person/knows": "person/name" }]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", [{ "BAD": [] }]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [["pull", "?e", [{ "person/name": ["*"] }]]],
+        "where": [["?e", "person/name", "Ada"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [
+          ["?e", "person/name", "?name"],
+          {
+            "not": [
+              ["?e", "person/knows", "?friend"],
+              ["?friend", "person/name", "Grace"]
+            ]
+          }
+        ]
+      },
+      "expect": { "columns": ["?name"], "rows": [["Grace"], ["Target"], ["Z"]] }
+    }
+  ]
+}

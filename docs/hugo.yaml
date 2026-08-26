@@ -10,7 +10,7 @@ enableGitInfo: true # last-modified dates from git (Hextra shows them in the foo
 module:
   hugoVersion:
     extended: true
-    min: "0.164.0"
+    min: "0.165.0"
   imports:
     - path: github.com/imfing/hextra
 
@@ -49,7 +49,7 @@ params:
     displayCopyright: true
   editURL:
     enable: true
-    base: https://github.com/fmind/fgraph/edit/main/docs
+    base: https://github.com/fmind/fgraph/edit/main/docs/content
   search:
     enable: true
     type: flexsearch # client-side search, no external service

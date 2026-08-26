@@ -1,0 +1,146 @@
+{
+  "steps": [
+    {
+      "declare": {
+        "attr": "item/title",
+        "type": "text",
+        "doc": "Title"
+      }
+    },
+    {
+      "declare": {
+        "attr": "item/embedding",
+        "type": "vector",
+        "dims": 2,
+        "vector_model": "test-embed/1"
+      }
+    },
+    {
+      "shape": {
+        "name": "shape/article",
+        "required": ["item/title"],
+        "allowed": ["item/embedding"],
+        "closed": true
+      }
+    },
+    {
+      "tx": {
+        "id": "article/one",
+        "fgraph/shape": { "ref": "shape/article" },
+        "item/title": "Portable facts",
+        "item/embedding": { "vector": [1, 0] }
+      }
+    },
+    {
+      "validate": "article/one",
+      "expect": { "basis_tx": 72, "valid": true, "violations": [] }
+    },
+    {
+      "schema": { "prefix": "item/" },
+      "expect": {
+        "basis_tx": 72,
+        "digest": "sha256:33baed66a7ff02e2567146923a23b181f26f2a21ca5d30874b50372007ad9379",
+        "attributes": [
+          {
+            "name": "item/embedding",
+            "declared": {
+              "dims": 2,
+              "type": "vector",
+              "vector_model": "test-embed/1"
+            },
+            "effective": {
+              "type": "vector",
+              "many": false,
+              "unique": false,
+              "nohistory": true,
+              "dims": 2,
+              "doc": null,
+              "vector_model": "test-embed/1"
+            },
+            "observed": {
+              "types": ["vector"],
+              "live_facts": 1,
+              "entities": 1
+            }
+          },
+          {
+            "name": "item/title",
+            "declared": { "doc": "Title", "type": "text" },
+            "effective": {
+              "type": "text",
+              "many": false,
+              "unique": false,
+              "nohistory": false,
+              "dims": null,
+              "doc": "Title",
+              "vector_model": null
+            },
+            "observed": {
+              "types": ["text"],
+              "live_facts": 1,
+              "entities": 1
+            }
+          }
+        ],
+        "shapes": [
+          {
+            "name": "shape/article",
+            "required": ["item/title"],
+            "allowed": ["item/embedding", "item/title"],
+            "closed": true
+          }
+        ]
+      }
+    },
+    {
+      "explain": {
+        "find": ["?title"],
+        "where": [["article/one", "item/title", "?title"]]
+      },
+      "expect": {
+        "basis_tx": 72,
+        "source": "current",
+        "work_limit": 100000,
+        "clauses": [
+          {
+            "ordinal": 0,
+            "kind": "pattern",
+            "access": "eavt/ea",
+            "bound": []
+          }
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "datoms": {
+        "index": "eavt",
+        "components": ["article/one", "item/title"],
+        "limit": 10
+      },
+      "expect": {
+        "basis_tx": 72,
+        "items": [
+          {
+            "e": "article/one",
+            "a": "item/title",
+            "v": "Portable facts",
+            "tx": 72,
+            "added": true,
+            "fact_id": 55
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "tx": {
+        "id": "article/two",
+        "fgraph/shape": { "ref": "shape/article" },
+        "item/embedding": { "vector": [0, 1] }
+      },
+      "error": "SchemaError"
+    },
+    { "validate": "article/one", "expect": { "basis_tx": 72, "valid": true, "violations": [] } }
+  ]
+}

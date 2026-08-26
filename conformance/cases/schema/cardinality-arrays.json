@@ -1,0 +1,30 @@
+{
+  "name": "schema/cardinality-arrays",
+  "comment": "A raw array is cardinality-many syntax regardless of length; cardinality-one attributes reject empty, singleton, and multi-value arrays.",
+  "steps": [
+    { "tx": { "id": "owner", "scalar/value": [] }, "error": "Conflict" },
+    { "tx": { "id": "owner", "scalar/value": [1] }, "error": "Conflict" },
+    { "tx": { "id": "owner", "scalar/value": [1, 2] }, "error": "Conflict" },
+    { "declare": { "attr": "audit/scalar", "type": "int" } },
+    {
+      "tx": {},
+      "options": { "tx": { "audit/scalar": [] } },
+      "error": "Conflict"
+    },
+    {
+      "tx": {},
+      "options": { "tx": { "audit/scalar": [1] } },
+      "error": "Conflict"
+    },
+    {
+      "tx": {},
+      "options": { "tx": { "audit/scalar": [1, 2] } },
+      "error": "Conflict"
+    },
+    {
+      "tx": { "id": "owner", "scalar/value": 1 },
+      "expect": { "ids": { "owner": 67 }, "tx": 69, "...": true }
+    },
+    { "entity": "owner", "expect": { "scalar/value": 1 } }
+  ]
+}

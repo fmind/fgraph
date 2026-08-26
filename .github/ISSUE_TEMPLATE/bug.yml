@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible correctness, compatibility, performance, or recovery defect.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not attach private databases or secrets. Reduce the problem to the
+        smallest safe reproduction and run `fgraph doctor --json` when possible.
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Python
+        - Go
+        - TypeScript
+        - Cross-runtime / file format
+        - CLI or MCP
+        - Documentation or release tooling
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Exact version or commit
+      placeholder: fgraph 1.0.0, runtime version, operating system, and commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include exact commands or code and the smallest non-sensitive input.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include the complete typed error and relevant doctor output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Cite the docs specification section when the behavior is normative.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed secrets, personal data, and private database contents.
+          required: true
+        - label: I checked existing issues and reproduced this on the stated version.
+          required: true

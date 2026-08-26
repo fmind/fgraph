@@ -1,8 +1,45 @@
 # Conformance suite
 
-The shared contract between the Python and Go implementations (and any future port). Every case in `cases/` MUST pass in every implementation; `crosscheck.ndjson` is the scenario replayed by `scripts/crosscheck.sh` to prove file-level compatibility.
+This directory is the executable contract between the native Python, Go, and TypeScript implementations.
 
-- **Case format**: see `SPEC.md` §13.1 (steps: `tx`, `declare`, `q`, `entity`, `history`, `diff`, `why`, `search`, `at`, `facts`, with `expect`/`error`).
-- **Determinism**: runners inject the conformance clock — start `1767225600000000` µs (2026-01-01T00:00:00Z), +1,000,000 µs per transaction (`SPEC.md` §13.2). Ids are then fully determined: genesis tx = 64, first user id = 65, entity ids in order of first appearance, tx id last.
-- **`facts` steps** assert raw `fgraph_facts` rows `[id, e, a, v, t, tx, rx]` **beyond** the 25 genesis rows — they pin the physical file format.
-- **Seeds**: the cases here pin the trickiest semantics and use `"..."` elisions where noted; the implementer fills them exactly during M1–M2 and extends the suite until every normative MUST in `SPEC.md` §4–§9 (and every typed error) has at least one case.
+## Shared cases
+
+Each JSON file under `cases/<area>/` has a name, rationale, and ordered steps. Runners support:
+
+- writes: `tx`, `declare`, and `shape`, with operation/basis options;
+- reads: `stats`, `entity`, `history`, `diff`, `why`, `receipt`, `attributes`, `schema`, `validate`, `q`, `explain`, `datoms`, and `search`;
+- historical wrapping through `at`;
+- exact raw `facts` assertions beyond the 39 genesis facts;
+- `expect` or one stable typed `error` name.
+
+Arrays and objects are exact by default. `"...": true` permits additional object keys only; it never permits extra array values. Unordered query rows are compared as multisets only when the query has no non-empty `order`.
+
+## Determinism
+
+Runners inject:
+
+```text
+clock = 1767225600000000 + transaction_index * 1000000 microseconds
+event seed = fgraph-conformance-v2
+```
+
+This determines allocation, timestamps, stable UUIDs, hashes, encoded values, and ordered logical rows. Raw SQLite pager bytes are not normative.
+
+## Cross-runtime proof
+
+`crosscheck.ndjson` is the canonical compatibility scenario. `scripts/crosscheck.sh` proves:
+
+1. All three writers produce exact ordered core rows.
+1. Every runtime reads every peer file with identical events, snapshots, entity/schema/query results, and keyword/vector search.
+1. Every runtime restores every peer snapshot to exact logical state.
+1. Every runtime applies every peer event stream to identical portable state.
+1. Reapplying every peer stream returns the original receipt basis with empty change deltas.
+1. Malformed multi-event input rolls back as one atomic apply.
+
+Event replay intentionally ignores local fact-row ids in matched search evidence because the receiving database records replay provenance. Stable event/entity ids, transactions, values, and public logical results remain exact.
+
+## Immutable fixture
+
+`fixtures/format-v2.db` plus its canonical events, snapshot, core rows, and checksums freezes the released file contract. Every runtime opens it read-only, passes `doctor`, and reproduces all expectations without migration.
+
+Run the full proof through `mise run test`; run only the compatibility matrix with `mise run test:cross` and the frozen fixture with `mise run test:fixture`.

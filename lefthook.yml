@@ -19,6 +19,11 @@ pre-commit:
       priority: 10
       run: mise run format:go
       stage_fixed: true
+    format:typescript:
+      glob: "*.{js,mjs,cjs,ts,tsx}"
+      priority: 10
+      run: mise run format:typescript
+      stage_fixed: true
     check:leaks:
       priority: 20
       run: mise run check:leaks --staged

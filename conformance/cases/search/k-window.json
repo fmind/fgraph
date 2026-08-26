@@ -1,0 +1,34 @@
+{
+  "name": "search/k-window",
+  "comment": "The requested top-k window is not an internal truncation; truncated reports hidden safety-cap loss.",
+  "steps": [
+    {
+      "tx": [
+        {
+          "id": "alpha",
+          "doc/text": "shared search phrase"
+        },
+        {
+          "id": "beta",
+          "doc/text": "shared search phrase"
+        }
+      ]
+    },
+    {
+      "search": {
+        "text": "shared search phrase",
+        "k": 1
+      },
+      "expect": {
+        "hits": [
+          {
+            "entity": "alpha",
+            "...": true
+          }
+        ],
+        "truncated": false,
+        "...": true
+      }
+    }
+  ]
+}

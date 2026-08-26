@@ -1,0 +1,20 @@
+{
+  "name": "values/json-depth",
+  "comment": "Canonical JSON accepts 64 nested containers and rejects a 65th with the stable TooLarge taxonomy.",
+  "steps": [
+    {
+      "tx": {
+        "id": "maximum-depth",
+        "depth/value": { "json": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] }
+      }
+    },
+    {
+      "tx": {
+        "id": "over-depth",
+        "depth/value": { "json": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] }
+      },
+      "error": "TooLarge"
+    },
+    { "entity": "over-depth", "error": "NotFound" }
+  ]
+}

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/fmind/fgraph/security/advisories/new
+    about: Report vulnerabilities privately; do not open a public issue.
+  - name: Documentation
+    url: https://fmind.github.io/fgraph/
+    about: Read the v1 concepts, operations guidance, and specification.

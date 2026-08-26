@@ -1,0 +1,80 @@
+{
+  "name": "operations/stats",
+  "comment": "Logical statistics exclude transaction identities, distinguish retained from live facts, include anonymous identities, and count retained indirect blobs at the selected basis.",
+  "steps": [
+    {
+      "stats": {},
+      "expect": {
+        "application_id": 1718055521,
+        "format_version": 2,
+        "entities": 18,
+        "attributes": 18,
+        "facts": 39,
+        "live_facts": 39,
+        "transactions": 1,
+        "blobs": 0,
+        "size": 0
+      }
+    },
+    { "tx": { "item/value": "anonymous" } },
+    {
+      "stats": {},
+      "expect": {
+        "application_id": 1718055521,
+        "format_version": 2,
+        "entities": 20,
+        "attributes": 19,
+        "facts": 41,
+        "live_facts": 41,
+        "transactions": 2,
+        "blobs": 0,
+        "size": 0
+      }
+    },
+    {
+      "tx": {
+        "id": "blob/entity/item",
+        "blob/value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "tx": {
+        "id": "blob/entity/item",
+        "blob/value": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      }
+    },
+    {
+      "stats": {},
+      "expect": {
+        "application_id": 1718055521,
+        "format_version": 2,
+        "entities": 22,
+        "attributes": 20,
+        "facts": 45,
+        "live_facts": 44,
+        "transactions": 4,
+        "blobs": 2,
+        "size": 0
+      }
+    },
+    {
+      "at": 70,
+      "steps": [
+        {
+          "stats": {},
+          "expect": {
+            "application_id": 1718055521,
+            "format_version": 2,
+            "entities": 22,
+            "attributes": 20,
+            "facts": 43,
+            "live_facts": 43,
+            "transactions": 3,
+            "blobs": 1,
+            "size": 0
+          }
+        }
+      ]
+    }
+  ]
+}

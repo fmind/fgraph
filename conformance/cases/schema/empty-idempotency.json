@@ -1,0 +1,67 @@
+{
+  "name": "empty schema replacement records exact idempotent retries",
+  "steps": [
+    {
+      "schema_apply": {
+        "manifest": {
+          "fgraph": "schema/1",
+          "attributes": [],
+          "shapes": []
+        },
+        "operation_id": "schema-manifest:empty"
+      },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 64,
+        "tx": 65,
+        "at": 1767225601000000,
+        "asserted": [
+          {
+            "id": 40,
+            "e": 65,
+            "a": "fgraph/at",
+            "v": {
+              "instant": "2026-01-01T00:00:01.000000Z"
+            },
+            "tx": 65,
+            "rx": null
+          }
+        ],
+        "retracted": [],
+        "...": true
+      }
+    },
+    {
+      "receipt": 65,
+      "expect": {
+        "basis_tx": 64,
+        "read_basis_tx": 65,
+        "tx": 65,
+        "operation_id": "schema-manifest:empty",
+        "request_hash": "sha256:a3722bceda0a8655de48e2a7cd26a83c802f7682047f6b9523786bb4c4a33ed8",
+        "...": true
+      }
+    },
+    {
+      "schema_apply": {
+        "manifest": {
+          "fgraph": "schema/1",
+          "attributes": [],
+          "shapes": []
+        },
+        "operation_id": "schema-manifest:empty",
+        "if_basis_tx": 64
+      },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 64,
+        "tx": 65,
+        "at": 1767225601000000,
+        "ids": {},
+        "asserted": [],
+        "retracted": [],
+        "...": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "transact/tx-metadata",
+  "comment": "Explicit null metadata and custom transaction facts are preserved, while receipt fields remain exclusive to their top-level options.",
+  "steps": [
+    {
+      "tx": {},
+      "options": { "tx": {} },
+      "expect": { "tx": null, "at": null, "ids": {}, "asserted": [], "retracted": [], "...": true }
+    },
+    {
+      "tx": {},
+      "options": { "meta": null, "tx": { "audit/kind": "test" } },
+      "expect": { "tx": 66, "...": true }
+    },
+    {
+      "entity": 66,
+      "expect": {
+        "audit/kind": "test",
+        "fgraph/at": { "instant": "2026-01-01T00:00:01.000000Z" },
+        "fgraph/meta": { "json": null }
+      }
+    },
+    {
+      "tx": { "id": "bad", "value/text": "not committed" },
+      "options": {
+        "source": "top-level",
+        "tx": { "fgraph/source": "duplicate" }
+      },
+      "error": "SchemaError"
+    },
+    { "entity": "bad", "error": "NotFound" },
+    { "declare": { "attr": "audit/tag", "type": "text", "many": true } },
+    {
+      "tx": {},
+      "options": { "tx": { "audit/tag": [] } },
+      "expect": { "tx": null, "at": null, "ids": {}, "asserted": [], "retracted": [], "...": true }
+    },
+    {
+      "tx": {},
+      "options": { "tx": { "audit/tag": ["first", "second"] } },
+      "expect": { "tx": 69, "...": true }
+    },
+    {
+      "entity": 69,
+      "expect": {
+        "audit/tag": ["first", "second"],
+        "fgraph/at": { "instant": "2026-01-01T00:00:03.000000Z" }
+      }
+    },
+    { "declare": { "attr": "audit/subject", "ref": true } },
+    {
+      "tx": { "id": "protected-subject", "subject/value": 1 },
+      "options": {
+        "tx": { "audit/subject": { "ref": "protected-subject" } }
+      },
+      "expect": { "tx": 74, "...": true }
+    },
+    { "tx": ["retract", "protected-subject"] },
+    { "entity": "protected-subject", "expect": {} },
+    {
+      "entity": 74,
+      "expect": {
+        "audit/subject": { "ref": "protected-subject" },
+        "fgraph/at": { "instant": "2026-01-01T00:00:05.000000Z" }
+      }
+    }
+  ]
+}

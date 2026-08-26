@@ -1,0 +1,28 @@
+{
+  "name": "query/rule-order",
+  "comment": "Rule relations retain fact order so non-associative floating aggregates are deterministic across implementations.",
+  "steps": [
+    {
+      "declare": { "attr": "number/value", "type": "float", "many": true }
+    },
+    {
+      "tx": {
+        "id": "ordered-floats",
+        "number/value": [1e16, 1.0, -1e16]
+      }
+    },
+    {
+      "q": {
+        "find": [["sum", "?value"], ["avg", "?value"]],
+        "where": [{ "rule": ["values", "?value"] }],
+        "rules": [
+          {
+            "head": ["values", "?value"],
+            "body": [["ordered-floats", "number/value", "?value"]]
+          }
+        ]
+      },
+      "expect": { "columns": ["sum(?value)", "avg(?value)"], "rows": [[0.0, 0.0]] }
+    }
+  ]
+}

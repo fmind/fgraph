@@ -1,0 +1,21 @@
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - license
+    - misconfig
+    - secret
+    - vuln
+  skip-dirs:
+    - .agents/tmp
+    - docs/public
+    - docs/tmp
+    - go/bin
+    - python/.venv
+    - python/dist
+    - typescript/coverage
+    - typescript/dist
+    - typescript/node_modules
+vulnerability:
+  ignore-unfixed: true

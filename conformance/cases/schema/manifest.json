@@ -1,0 +1,210 @@
+{
+  "name": "portable schema manifest export, drift check, and atomic apply",
+  "steps": [
+    {
+      "schema_manifest": {},
+      "expect": {
+        "fgraph": "schema/1",
+        "attributes": [],
+        "shapes": [],
+        "...": true
+      }
+    },
+    {
+      "schema_apply": {
+        "manifest": {
+          "fgraph": "schema/1",
+          "attributes": [
+            {
+              "name": "project/id",
+              "declared": { "type": "text", "unique": true }
+            },
+            {
+              "name": "project/tags",
+              "declared": { "type": "text", "many": true }
+            }
+          ],
+          "shapes": [
+            {
+              "name": "shape/project",
+              "required": ["project/id"],
+              "allowed": ["project/tags"],
+              "closed": true
+            }
+          ]
+        },
+        "operation_id": "schema-manifest:apply"
+      },
+      "expect": { "status": "applied", "...": true }
+    },
+    {
+      "schema_manifest": {},
+      "expect": {
+        "fgraph": "schema/1",
+        "attributes": [
+          {
+            "name": "project/id",
+            "declared": { "type": "text", "unique": true }
+          },
+          {
+            "name": "project/tags",
+            "declared": { "type": "text", "many": true }
+          }
+        ],
+        "shapes": [
+          {
+            "name": "shape/project",
+            "required": ["project/id"],
+            "allowed": ["project/id", "project/tags"],
+            "closed": true
+          }
+        ],
+        "...": true
+      }
+    },
+    {
+      "schema_check": {
+        "fgraph": "schema/1",
+        "attributes": [
+          {
+            "name": "project/tags",
+            "declared": { "many": true, "type": "text" }
+          },
+          {
+            "name": "project/id",
+            "declared": { "unique": true, "type": "text" }
+          }
+        ],
+        "shapes": [
+          {
+            "name": "shape/project",
+            "required": ["project/id"],
+            "allowed": ["project/tags"],
+            "closed": true
+          }
+        ]
+      },
+      "expect": { "valid": true, "changes": [], "...": true }
+    },
+    {
+      "schema_check": {
+        "fgraph": "schema/1",
+        "attributes": [
+          {
+            "name": "project/id",
+            "declared": { "type": "text", "unique": true }
+          }
+        ],
+        "shapes": []
+      },
+      "expect": {
+        "basis_tx": 68,
+        "valid": false,
+        "changes": [
+          {
+            "kind": "attribute",
+            "name": "project/tags",
+            "before": { "type": "text", "many": true },
+            "after": null
+          },
+          {
+            "kind": "shape",
+            "name": "shape/project",
+            "before": {
+              "name": "shape/project",
+              "required": ["project/id"],
+              "allowed": ["project/id", "project/tags"],
+              "closed": true
+            },
+            "after": null
+          }
+        ],
+        "...": true
+      }
+    },
+    {
+      "schema_apply": {
+        "manifest": {
+          "fgraph": "schema/1",
+          "attributes": [
+            {
+              "name": "project/id",
+              "declared": { "type": "text", "unique": true }
+            }
+          ],
+          "shapes": []
+        },
+        "operation_id": "schema-manifest:replace",
+        "if_basis_tx": 68
+      },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 68,
+        "tx": 69,
+        "at": 1767225602000000,
+        "...": true
+      }
+    },
+    {
+      "receipt": 69,
+      "expect": {
+        "basis_tx": 68,
+        "read_basis_tx": 69,
+        "tx": 69,
+        "operation_id": "schema-manifest:replace",
+        "request_hash": "sha256:0bd106af414a637c03014268c4c6f85dbad036201807cfb17872a585edd6d792",
+        "...": true
+      }
+    },
+    {
+      "schema_manifest": {},
+      "expect": {
+        "fgraph": "schema/1",
+        "attributes": [
+          {
+            "name": "project/id",
+            "declared": { "type": "text", "unique": true }
+          }
+        ],
+        "shapes": [],
+        "...": true
+      }
+    },
+    {
+      "schema_apply": {
+        "manifest": {
+          "fgraph": "schema/1",
+          "attributes": [
+            {
+              "name": "project/id",
+              "declared": { "type": "text", "unique": true }
+            }
+          ],
+          "shapes": []
+        },
+        "operation_id": "schema-manifest:replace",
+        "if_basis_tx": 68
+      },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 68,
+        "tx": 69,
+        "at": 1767225602000000,
+        "ids": {},
+        "asserted": [],
+        "retracted": [],
+        "...": true
+      }
+    },
+    {
+      "schema_check": {
+        "fgraph": "schema/1",
+        "attributes": [
+          { "name": "project/id", "declared": { "type": "unknown" } }
+        ],
+        "shapes": []
+      },
+      "error": "SchemaError"
+    }
+  ]
+}

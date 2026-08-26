@@ -1,0 +1,28 @@
+{
+  "name": "transact/tempid-noop",
+  "comment": "A transaction-local identity whose complete working set is canceled creates no phantom id or allocation gap.",
+  "steps": [
+    { "declare": { "attr": "item/value", "type": "int" } },
+    {
+      "tx": [
+        { "id": { "tmp": "discard" }, "item/value": 1 },
+        ["retract", { "tmp": "discard" }, "item/value", 1]
+      ],
+      "expect": {
+        "status": "noop",
+        "event": null,
+        "basis_tx": 66,
+        "tx": null,
+        "at": null,
+        "ids": {},
+        "asserted": [],
+        "retracted": []
+      }
+    },
+    {
+      "tx": { "id": "after", "item/value": 2 },
+      "expect": { "ids": { "after": 67 }, "tx": 68, "...": true }
+    },
+    { "entity": "after", "expect": { "item/value": 2 } }
+  ]
+}

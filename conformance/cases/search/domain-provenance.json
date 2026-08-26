@@ -1,0 +1,54 @@
+{
+  "name": "search/domain-provenance",
+  "comment": "Default recall ranks only application facts and makes every match immediately attributable.",
+  "steps": [
+    {
+      "tx": { "id": "domain-note", "note/text": "agent schema guidance" },
+      "options": { "by": "codex", "source": "conversation:1" }
+    },
+    {
+      "search": { "text": "agent" },
+      "expect": {
+        "basis_tx": 67,
+        "hits": [
+          {
+            "entity": "domain-note",
+            "matched": [
+              {
+                "a": "note/text",
+                "at": 1767225601000000,
+                "by": "codex",
+                "source": "conversation:1",
+                "...": true
+              }
+            ],
+            "...": true
+          }
+        ],
+        "expanded": [],
+        "truncated": false,
+        "work_used": 1
+      }
+    },
+    {
+      "search": { "text": "Author" },
+      "expect": {
+        "basis_tx": 67,
+        "hits": [],
+        "expanded": [],
+        "truncated": false,
+        "work_used": 0
+      }
+    },
+    {
+      "search": { "text": "schema" },
+      "expect": {
+        "basis_tx": 67,
+        "hits": [{ "entity": "domain-note", "...": true }],
+        "expanded": [],
+        "truncated": false,
+        "work_used": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "errors/taxonomy",
+  "comment": "Representative schema, type, query, lookup, integer-domain, and historical-read failures use the shared typed taxonomy.",
+  "steps": [
+    { "declare": { "attr": "bad", "type": "text" }, "error": "SchemaError" },
+    { "declare": { "attr": "empty/attr" }, "error": "SchemaError" },
+    { "declare": { "attr": "person/age", "type": "int" } },
+    { "tx": { "id": "ada", "person/age": "old" }, "error": "TypeError" },
+    {
+      "tx": [
+        { "id": "score/value", "fgraph/type": "int" },
+        { "id": "bad-score", "score/value": "wrong" }
+      ],
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "bad\u0085name", "value/text": "control" },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "bad-space-instant", "value/at": { "instant": "2026-01-01 00:00:00Z" } },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "bad-week-instant", "value/at": { "instant": "2026-W01-4T00:00:00Z" } },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "bad-comma-instant", "value/at": { "instant": "2026-01-01T00:00:00,5Z" } },
+      "error": "TypeError"
+    },
+    { "entity": "missing", "error": "NotFound" },
+    {
+      "q": { "find": ["?missing"], "where": [["?e", "person/age", "?age"]] },
+      "error": "QueryError"
+    },
+    {
+      "at": 66,
+      "steps": [{ "tx": { "id": "ada", "person/age": 36 }, "error": "ReadOnly" }]
+    },
+    { "entity": 999, "error": "NotFound" },
+    { "entity": 9223372036854775808, "error": "TypeError" },
+    { "declare": { "attr": "edge/target", "ref": true } },
+    {
+      "tx": { "id": "holder", "edge/target": { "ref": 999 } },
+      "error": "NotFound"
+    }
+  ]
+}

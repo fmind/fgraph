@@ -1,0 +1,31 @@
+{
+  "name": "query/order-rendered-ref",
+  "comment": "Order compares rendered values, so named refs sort lexically rather than by allocation id, including unprojected order variables.",
+  "steps": [
+    {
+      "tx": [
+        { "id": "z", "item/name": "Zed" },
+        { "id": "a", "item/name": "Ada" }
+      ]
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "item/name", "_"]],
+        "order": [["?e", "asc"]]
+      },
+      "expect": {
+        "columns": ["?e"],
+        "rows": [[{ "ref": "a" }], [{ "ref": "z" }]]
+      }
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [["?e", "item/name", "?name"]],
+        "order": [["?e", "asc"]]
+      },
+      "expect": { "columns": ["?name"], "rows": [["Ada"], ["Zed"]] }
+    }
+  ]
+}

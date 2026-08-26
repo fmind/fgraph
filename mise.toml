@@ -1,20 +1,30 @@
 # fgraph monorepo task runner — the single source of truth for tools and tasks.
-# Git hooks (lefthook.yml) and CI reuse these exact tasks; see AGENTS.md and SPEC.md.
-# The python/, go/, and docs/ tasks activate as each stack is scaffolded (SPEC.md M0).
+# Git hooks (lefthook.yml) and CI reuse these exact tasks; see AGENTS.md and docs/content/docs/spec.md.
+# The python/, go/, typescript/, and docs/ tasks cover every implementation and the documentation site.
 
 [settings.task]
 run_auto_install = false
 
+[tool_alias]
+# Aqua is checksum-locked and portable; the asdf fallback has no Windows asset lock.
+uv = "aqua:astral-sh/uv"
+
 [tools]
-dprint = "latest"
-gitleaks = "latest"
-go = "latest"
-golangci-lint = "latest"
-gotestsum = "latest"
-hugo-extended = "latest"
-lefthook = "latest"
-lychee = "latest"
-uv = "latest"
+actionlint = "1.7.12"
+dprint = "0.56.1"
+gitleaks = "8.30.1"
+go = "1.27.0"
+golangci-lint = "2.13.1"
+gotestsum = "1.13.0"
+hugo-extended = "0.165.0"
+lefthook = "2.1.11"
+lychee = "0.24.2"
+node = "24.20.0"
+shellcheck = "0.11.0"
+sqlite = "3.53.4"
+trivy = "0.74.0"
+uv = "0.12.6"
+zizmor = "1.29.0"
 
 [tasks.all]
 alias = "a"
@@ -24,28 +34,46 @@ run = ["mise run format", "mise run check", "mise run test", "mise run build"]
 [tasks.install]
 alias = "i"
 description = "Install development dependencies and git hooks"
-depends = ["install:python", "install:go", "install:docs"]
+depends = ["install:dependencies"]
 run = "lefthook install"
+
+[tasks."install:dependencies"]
+description = "Install every locked project dependency without modifying Git hooks"
+depends = ["install:python", "install:go", "install:typescript", "install:docs"]
+
+[tasks."install:portable"]
+description = "Install locked dependencies used by the cross-platform runtime gate"
+depends = ["install:python", "install:go", "install:typescript"]
 
 [tasks."install:python"]
 description = "Sync the Python virtualenv (uv)"
 dir = "python"
-run = "uv sync"
+run = "uv sync --locked"
 
 [tasks."install:go"]
-description = "Tidy Go modules and download dependencies"
+description = "Download and verify locked Go runtime and example dependencies"
 dir = "go"
-run = "go mod tidy"
+run = [
+  "go mod download",
+  "go mod verify",
+  "go -C ../examples/go mod download",
+  "go -C ../examples/go mod verify",
+]
+
+[tasks."install:typescript"]
+description = "Install the locked TypeScript dependencies"
+dir = "typescript"
+run = "npm ci"
 
 [tasks."install:docs"]
-description = "Download Hugo modules (Hextra theme)"
+description = "Download and verify the locked Hugo module graph"
 dir = "docs"
-run = "hugo mod get"
+run = ["go mod download", "go mod verify"]
 
 [tasks.format]
 alias = "f"
 description = "Format all sources and documents"
-depends = ["format:dprint", "format:python", "format:go"]
+depends = ["format:dprint", "format:python", "format:go", "format:typescript"]
 
 [tasks."format:dprint"]
 description = "Format JSON, Markdown, TOML, YAML with dprint"
@@ -55,20 +83,40 @@ run = "dprint fmt"
 description = "Format Python sources and imports (ruff)"
 # Runs from the repo root via --project so lefthook globs and direct calls agree.
 run = [
-  "uv run --project python ruff check --select=I --fix --force-exclude python",
-  "uv run --project python ruff format --force-exclude python",
+  "uv run --project python ruff check --select=I --fix --force-exclude python examples/python",
+  "uv run --project python ruff format --force-exclude python examples/python",
 ]
 
 [tasks."format:go"]
 description = "Format Go sources and imports (goimports + gofumpt)"
 dir = "go"
 # Flags must mirror go/.golangci.yml: local-prefixes and extra-rules are format policy.
-run = ["go tool goimports -local github.com/fmind/fgraph -w .", "go tool gofumpt -extra -w ."]
+run = [
+  "go tool goimports -local github.com/fmind/fgraph/go -w . ../examples/go",
+  "go tool gofumpt -extra -w . ../examples/go",
+]
+
+[tasks."format:typescript"]
+description = "Format TypeScript sources and examples (Prettier)"
+dir = "typescript"
+run = ["npm run format", "npm exec -- prettier --write ../examples/typescript"]
 
 [tasks.check]
 alias = "c"
 description = "Run all static checks in parallel"
-depends = ["check:format", "check:leaks", "check:python", "check:go", "check:docs"]
+depends = [
+  "check:format",
+  "check:leaks",
+  "check:scan",
+  "check:actions",
+  "check:python",
+  "check:go",
+  "check:typescript",
+  "check:scripts",
+  "check:deep-json",
+  "check:versions",
+  "check:docs",
+]
 
 [tasks."check:format"]
 alias = "cf"
@@ -80,13 +128,23 @@ alias = "cs"
 description = "Audit git history for leaked secrets (gitleaks)"
 run = "gitleaks git --log-opts=\"--max-count=100\" --verbose"
 
+[tasks."check:scan"]
+description = "Scan dependencies, configuration, licenses, and secrets"
+run = "trivy --config trivy.yaml fs --exit-code 1 --quiet ."
+
+[tasks."check:actions"]
+description = "Lint and security-audit GitHub Actions workflows"
+run = ["actionlint", "zizmor --offline .github/workflows/"]
+
 [tasks."check:python"]
 description = "Lint, type-check, and audit the Python implementation"
 dir = "python"
 run = [
   "uv run validate-pyproject pyproject.toml",
   "uv run ruff format --check",
+  "uv run ruff format --check ../examples/python",
   "uv run ruff check",
+  "uv run ruff check ../examples/python",
   "uv run ty check",
   "uv run pip-audit --skip-editable --cache-dir .cache/pip-audit",
   "uv lock --check",
@@ -95,7 +153,42 @@ run = [
 [tasks."check:go"]
 description = "Lint and audit the Go implementation"
 dir = "go"
-run = ["golangci-lint run ./...", "go tool govulncheck ./..."]
+run = [
+  "go mod tidy -diff",
+  "go -C ../examples/go mod tidy -diff",
+  "golangci-lint run ./...",
+  "go tool govulncheck ./...",
+]
+
+[tasks."check:typescript"]
+description = "Format-check, lint, type-check, and audit the TypeScript implementation"
+dir = "typescript"
+run = [
+  "npm run check",
+  "npm exec -- prettier --check ../examples/typescript",
+  "npm audit --audit-level=high",
+]
+
+[tasks."check:scripts"]
+description = "Lint the repository test, benchmark, and release harnesses"
+run = [
+  "uv run --project python ruff format --check scripts/benchmark.py scripts/check_versions.py scripts/deterministic_zip.py scripts/differential.py scripts/smoke_release_archive.py scripts/test_packages.py",
+  "uv run --project python ruff check scripts/benchmark.py scripts/check_versions.py scripts/deterministic_zip.py scripts/differential.py scripts/smoke_release_archive.py scripts/test_packages.py",
+  "uv lock --check --script scripts/benchmark.py",
+  "uv lock --check --script scripts/check_versions.py",
+  "uv lock --check --script scripts/deterministic_zip.py",
+  "uv lock --check --script scripts/differential.py",
+  "uv lock --check --script scripts/test_packages.py",
+  "shellcheck scripts/*.sh",
+]
+
+[tasks."check:deep-json"]
+description = "Validate the adversarial depth fixture separately because it exhausts dprint's recursive JSON printer"
+run = "uv run --project python python -c \"import json, pathlib; json.loads(pathlib.Path('conformance/cases/values/json-depth.json').read_text())\""
+
+[tasks."check:versions"]
+description = "Verify every package and runtime reports one release version"
+run = "uv run --offline --script scripts/check_versions.py"
 
 [tasks."check:docs"]
 description = "Build the docs with warnings promoted to errors"
@@ -103,24 +196,59 @@ dir = "docs"
 # Git info is display metadata, not content: skipping it keeps this check green on
 # fresh repos (no commits yet) where reading the git log warns and would panic.
 env = { HUGO_ENABLEGITINFO = "false" }
-run = "hugo build --destination tmp/check --logLevel warn --panicOnWarning --printPathWarnings"
+run = [
+  "go mod verify",
+  "hugo build --destination tmp/check --logLevel warn --panicOnWarning --printPathWarnings",
+]
 
 [tasks.test]
 alias = "t"
 description = "Run all test suites and the cross-implementation check"
-depends = ["test:python", "test:go", "test:docs", "test:cross"]
+depends = [
+  "test:python",
+  "test:python-min",
+  "test:go",
+  "test:typescript",
+  "test:docs",
+  "test:cross",
+  "test:fixture",
+  "test:differential",
+  "test:examples",
+  "test:packages",
+]
 
 [tasks."test:python"]
 description = "Run the Python suite with the 95% coverage gate"
 dir = "python"
 run = "uv run pytest --cov --cov-fail-under=95"
 
+[tasks."test:python-min"]
+description = "Run the full suite on the minimum supported Python 3.12"
+dir = "python"
+depends = ["test:python"]
+run = "uv run --isolated --python 3.12 pytest -o cache_dir=.cache/pytest-py312"
+
 [tasks."test:go"]
 description = "Run the Go suite (race) with the 95% coverage gate"
 dir = "go"
 run = [
   "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./...",
-  '''go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/, "", $3); if ($3 + 0.0 < 95.0) { printf "total coverage %s%% is below the 95%% gate\n", $3; exit 1 }}' ''',
+  "awk -f ../scripts/check-go-coverage.awk coverage.out",
+]
+
+[tasks."test:typescript"]
+description = "Run the TypeScript suite with the 95% coverage gate"
+dir = "typescript"
+run = "npm test"
+
+[tasks."test:portable"]
+description = "Exercise native runtime behavior and builds on non-Linux CI runners"
+run = [
+  "uv run --project python pytest --no-cov -q",
+  "go test -C go ./...",
+  "npm test --prefix typescript -- --coverage.enabled=false",
+  "uv build --project python --clear",
+  "npm run build --prefix typescript",
 ]
 
 [tasks."test:docs"]
@@ -134,25 +262,54 @@ run = [
 ]
 
 [tasks."test:cross"]
-description = "Verify a Python-written file reads identically in Go, and back"
-run = "sh scripts/crosscheck.sh"
+description = "Verify every runtime writes, reads, and replays identical SQLite files"
+depends = ["build:go", "build:typescript"]
+run = "scripts/crosscheck.sh"
+
+[tasks."test:fixture"]
+description = "Verify every runtime reads the immutable format-v2 fixture"
+depends = ["build:go", "build:typescript"]
+run = "scripts/test-v2-fixture.sh"
+
+[tasks."test:differential"]
+description = "Replay seeded semantic traces through all three runtimes"
+depends = ["build:go", "build:typescript"]
+run = "uv run --script scripts/differential.py"
+
+[tasks."test:examples"]
+description = "Run the Python, Go, and TypeScript examples as acceptance tests"
+depends = ["build:typescript"]
+run = "scripts/test-examples.sh"
+
+[tasks."test:packages"]
+description = "Install and exercise the built Python and npm packages"
+depends = ["build:python", "build:typescript"]
+run = "uv run --offline --script scripts/test_packages.py"
 
 [tasks.build]
 alias = "b"
 description = "Build all distributable artifacts"
-depends = ["build:python", "build:go", "build:docs"]
+depends = ["build:python", "build:go", "build:typescript", "build:docs"]
 
 [tasks."build:python"]
 description = "Build the Python distribution (wheel + sdist)"
 dir = "python"
-run = "uv build"
+run = "uv build --clear"
 
 [tasks."build:go"]
 description = "Compile the fgraph CLI binary"
 dir = "go"
+env = { CGO_ENABLED = "0" }
 sources = ["go.mod", "go.sum", "**/*.go"]
 outputs = ["bin/fgraph"]
 run = "go build -o bin/fgraph ./cmd/fgraph"
+
+[tasks."build:typescript"]
+description = "Compile the TypeScript library and CLI"
+dir = "typescript"
+sources = ["package.json", "package-lock.json", "README.md", "LICENSE", "tsconfig*.json", "src/**/*.ts"]
+outputs = ["dist/cli.js", "dist/index.js"]
+run = ["npm run build", "npm pack --dry-run"]
 
 [tasks."build:docs"]
 description = "Build the production docs site (minified, garbage-collected)"
@@ -166,9 +323,29 @@ alias = "n"
 description = "Remove build artifacts, caches, and generated resources"
 run = [
   "rm -rf python/.cache python/.pytest_cache python/.ruff_cache python/.coverage python/htmlcov python/dist",
-  "rm -rf go/bin go/coverage.out",
+  "rm -f .coverage python/coverage.json",
+  "rm -rf go/bin go/coverage.out go/go.test",
+  "rm -rf typescript/coverage typescript/coverage-format-review typescript/dist",
   "rm -rf docs/public docs/tmp docs/resources/_gen docs/.hugo_build.lock",
   "find . -type d -name __pycache__ -exec rm -rf {} +",
+]
+
+[tasks.benchmark]
+description = "Run opt-in end-to-end CLI benchmarks (defaults to 1k, 10k, and 100k entities)"
+depends = ["install:python", "build:go", "build:typescript"]
+run = "uv run --script scripts/benchmark.py --output benchmarks/latest.ndjson --charts-dir benchmarks"
+
+[tasks."benchmark:verify"]
+description = "Verify benchmark provenance, completeness, and chart artifacts without rerunning timings"
+depends = ["install:portable"]
+run = "uv run --script scripts/benchmark.py --verify --output benchmarks/latest.ndjson --charts-dir benchmarks"
+
+[tasks."release:verify"]
+description = "Prove the complete clean release candidate, including benchmark provenance"
+run = [
+  "mise run all",
+  "mise run benchmark:verify",
+  "test -z \"$(git status --porcelain)\"",
 ]
 
 [tasks.watch]

@@ -1,0 +1,64 @@
+{
+  "name": "values/all-logical-tags",
+  "comment": "Every logical wire tag round-trips through the common entity rendering, and vector type plus dimensions are fixed by the first write.",
+  "steps": [
+    {
+      "declare": {
+        "attr": "value/vector",
+        "doc": "Vector type and dimensions remain inferable after a partial declaration."
+      }
+    },
+    {
+      "tx": {
+        "id": "all-values",
+        "value/bool": true,
+        "value/bytes": { "bytes": "AAEC" },
+        "value/float": 1.5,
+        "value/instant": { "instant": "2026-08-24T10:00:00Z" },
+        "value/int": 42,
+        "value/json": { "json": ["nested", { "ok": true }] },
+        "value/ref": { "ref": "target" },
+        "value/text": "hello",
+        "value/vector": { "vector": [0.25, -0.5] }
+      }
+    },
+    {
+      "entity": "all-values",
+      "expect": {
+        "value/bool": true,
+        "value/bytes": { "bytes": "AAEC" },
+        "value/float": 1.5,
+        "value/instant": { "instant": "2026-08-24T10:00:00.000000Z" },
+        "value/int": 42,
+        "value/json": { "json": ["nested", { "ok": true }] },
+        "value/ref": { "ref": "target" },
+        "value/text": "hello",
+        "value/vector": { "vector": [0.25, -0.5] }
+      }
+    },
+    {
+      "entity": "value/vector",
+      "expect": {
+        "fgraph/type": "vector",
+        "fgraph/dims": 2,
+        "fgraph/doc": "Vector type and dimensions remain inferable after a partial declaration."
+      }
+    },
+    {
+      "tx": { "id": "bad-vector", "value/vector": { "vector": [1.0] } },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "empty-vector", "other/vector": { "vector": [] } },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "instant-underflow", "other/instant": { "instant": "0001-01-01T00:00:00+23:59" } },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "instant-overflow", "other/instant": { "instant": "9999-12-31T23:59:59-23:59" } },
+      "error": "TypeError"
+    }
+  ]
+}

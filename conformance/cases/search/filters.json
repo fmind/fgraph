@@ -1,0 +1,42 @@
+{
+  "name": "search/filters",
+  "comment": "Search filters use the selected attribute schema and the normal read-value resolver, including unique lookup references.",
+  "steps": [
+    { "declare": { "attr": "user/email", "type": "text", "unique": true } },
+    { "declare": { "attr": "note/owner", "ref": true } },
+    { "declare": { "attr": "note/kind", "type": "text" } },
+    {
+      "tx": [
+        { "id": "ada", "user/email": "ada@example.test" },
+        {
+          "id": "note",
+          "note/kind": "guide",
+          "note/owner": { "ref": "ada" },
+          "note/text": "filterable memory"
+        }
+      ]
+    },
+    {
+      "search": {
+        "text": "filterable",
+        "filters": [
+          ["note/owner", { "ref": ["user/email", "ada@example.test"] }]
+        ]
+      },
+      "expect": {
+        "basis_tx": 74,
+        "hits": [{ "entity": "note", "...": true }],
+        "expanded": [],
+        "truncated": false,
+        "work_used": 2
+      }
+    },
+    {
+      "search": {
+        "text": "filterable",
+        "filters": [["note/kind", 1]]
+      },
+      "error": "TypeError"
+    }
+  ]
+}

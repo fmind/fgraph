@@ -1,0 +1,26 @@
+{
+  "name": "query/recursive-rule",
+  "comment": "A self-recursive rule reaches a deduplicated fixed point without enabling mutual recursion.",
+  "steps": [
+    { "declare": { "attr": "person/parent", "ref": true, "many": true } },
+    { "tx": { "id": "ada", "person/parent": { "ref": "byron" } } },
+    { "tx": { "id": "byron", "person/parent": { "ref": "ralph" } } },
+    {
+      "q": {
+        "find": ["?ancestor"],
+        "where": [{ "rule": ["ancestor", "ada", "?ancestor"] }],
+        "rules": [
+          { "head": ["ancestor", "?child", "?parent"], "body": [["?child", "person/parent", "?parent"]] },
+          {
+            "head": ["ancestor", "?child", "?ancestor"],
+            "body": [
+              ["?child", "person/parent", "?parent"],
+              { "rule": ["ancestor", "?parent", "?ancestor"] }
+            ]
+          }
+        ]
+      },
+      "expect": { "columns": ["?ancestor"], "rows": [[{ "ref": "byron" }], [{ "ref": "ralph" }]] }
+    }
+  ]
+}

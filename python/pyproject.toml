@@ -1,0 +1,107 @@
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[project]
+name = "fgraph"
+version = "1.0.0"
+description = "Embedded temporal fact store in a single SQLite file"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Médéric Hurier" }]
+dependencies = [
+  "mcp==2.1.1",
+  "typer==0.27.1",
+]
+
+[project.urls]
+Documentation = "https://fmind.github.io/fgraph/"
+Issues = "https://github.com/fmind/fgraph/issues"
+Repository = "https://github.com/fmind/fgraph"
+
+[project.scripts]
+fgraph = "fgraph.cli:main"
+
+[dependency-groups]
+dev = [
+  "build==1.5.0",
+  "hypothesis==6.165.10",
+  "pip-audit==2.10.1",
+  "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.4",
+  "ty==0.0.74",
+  "validate-pyproject==0.26",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+branch = true
+source = ["fgraph"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ARG",
+  "ASYNC",
+  "B",
+  "C4",
+  "E",
+  "ERA",
+  "F",
+  "FA",
+  "FURB",
+  "I",
+  "ISC",
+  "LOG",
+  "N",
+  "PERF",
+  "PGH",
+  "PIE",
+  "PTH",
+  "PT",
+  "Q",
+  "RET",
+  "RSE",
+  "RUF",
+  "S",
+  "SIM",
+  "SLF",
+  "T10",
+  "T20",
+  "TID",
+  "UP",
+  "W",
+]
+ignore = ["ASYNC240", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/fgraph/__init__.py" = ["A004"] # Public error name is normative.
+"src/fgraph/errors.py" = ["N818"] # SPEC error taxonomy omits the Error suffix.
+"src/fgraph/store.py" = ["SLF001"] # Db builds lightweight views of its own private state.
+"tests/**/*.py" = ["S101", "T201"]
+
+[tool.ty.environment]
+extra-paths = ["./tests"]
+python-version = "3.12"
+root = ["./src"]

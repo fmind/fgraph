@@ -1,0 +1,72 @@
+{
+  "name": "schema/attributes",
+  "comment": "Agents can discover declared and zero-schema application attributes without variable attribute queries.",
+  "steps": [
+    {
+      "declare": {
+        "attr": "person/name",
+        "type": "text",
+        "doc": "Display name"
+      }
+    },
+    {
+      "declare": {
+        "attr": "person/tags",
+        "type": "text",
+        "many": true
+      }
+    },
+    {
+      "tx": {
+        "id": "ada",
+        "person/age": 36,
+        "person/name": "Ada",
+        "person/tags": ["math", "programming"]
+      }
+    },
+    {
+      "attributes": {},
+      "expect": [
+        {
+          "name": "person/age",
+          "types": ["int"],
+          "facts": 1,
+          "many": false,
+          "unique": false,
+          "nohistory": false
+        },
+        {
+          "name": "person/name",
+          "types": ["text"],
+          "facts": 1,
+          "many": false,
+          "unique": false,
+          "nohistory": false,
+          "doc": "Display name"
+        },
+        {
+          "name": "person/tags",
+          "types": ["text"],
+          "facts": 2,
+          "many": true,
+          "unique": false,
+          "nohistory": false
+        }
+      ]
+    },
+    {
+      "attributes": { "prefix": "person/n" },
+      "expect": [
+        {
+          "name": "person/name",
+          "types": ["text"],
+          "facts": 1,
+          "many": false,
+          "unique": false,
+          "nohistory": false,
+          "doc": "Display name"
+        }
+      ]
+    }
+  ]
+}

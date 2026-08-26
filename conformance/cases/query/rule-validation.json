@@ -1,0 +1,114 @@
+{
+  "name": "query/rule-validation",
+  "comment": "Rule bodies are validated independent of current data, so an empty leading pattern cannot hide unsafe negation.",
+  "steps": [
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "missing/value", "_"], [">", "?unbound", 1]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?x"],
+        "where": [{ "rule": ["unsafe", "?x"] }],
+        "rules": [
+          {
+            "head": ["unsafe", "?x"],
+            "body": [
+              ["?x", "missing/value", "_"],
+              { "not": [["?unbound", "person/name", "_"]] }
+            ]
+          }
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?x"],
+        "where": [{ "rule": ["typo", "?x"] }],
+        "rules": [
+          {
+            "head": ["typo", "?x"],
+            "body": [["?entity", "missing/value", "?x"]],
+            "boddy": []
+          }
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?x"],
+        "where": [{ "rule": ["unbound-head", "?x"] }],
+        "rules": [
+          {
+            "head": ["unbound-head", "?x"],
+            "body": [["?entity", "missing/value", "_"]]
+          }
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [
+          "?e"
+        ],
+        "where": [
+          [
+            "?e",
+            "missing/value",
+            "_"
+          ],
+          [
+            "=",
+            "?e"
+          ]
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [
+          [
+            "median",
+            "?e"
+          ]
+        ],
+        "where": [
+          [
+            "?e",
+            "missing/value",
+            "_"
+          ]
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [
+          "?e"
+        ],
+        "where": [
+          [
+            "?e",
+            "missing/value",
+            "_"
+          ]
+        ],
+        "order": [
+          [
+            "?never",
+            "asc"
+          ]
+        ]
+      },
+      "error": "QueryError"
+    }
+  ]
+}

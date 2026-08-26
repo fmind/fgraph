@@ -1,0 +1,31 @@
+{
+  "name": "schema/many-ref",
+  "comment": "Declared reference/cardinality flags are ordinary facts, many values render as stable arrays, and joins observe ref identity.",
+  "steps": [
+    { "declare": { "attr": "person/knows", "ref": true, "many": true }, "expect": { "tx": 66, "...": true } },
+    { "tx": { "id": "grace", "person/name": "Grace Hopper" } },
+    { "tx": { "id": "linus", "person/name": "Linus Torvalds" } },
+    {
+      "tx": {
+        "id": "ada",
+        "person/name": "Ada Lovelace",
+        "person/knows": [{ "ref": "grace" }, { "ref": "linus" }]
+      }
+    },
+    {
+      "entity": "ada",
+      "expect": {
+        "person/knows": [{ "ref": "grace" }, { "ref": "linus" }],
+        "person/name": "Ada Lovelace"
+      }
+    },
+    {
+      "q": {
+        "find": ["?friend"],
+        "where": [["ada", "person/knows", "?f"], ["?f", "person/name", "?friend"]],
+        "order": [["?friend", "asc"]]
+      },
+      "expect": { "columns": ["?friend"], "rows": [["Grace Hopper"], ["Linus Torvalds"]] }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "values/canonical-indirect",
+  "comment": "Canonical JSON, instant rendering, and the 256-byte text indirection boundary are identical in both files.",
+  "steps": [
+    {
+      "tx": {
+        "id": "value-case",
+        "data/instant": { "instant": 0 },
+        "data/json": {
+          "json": {
+            "z": 1.0,
+            "a": -0.0,
+            "n": 1e-7,
+            "numbers": [1e-7, 1e-6, 1e20, 1e21, 1250.0, -0.0]
+          }
+        },
+        "data/text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expect": { "tx": 69, "...": true }
+    },
+    {
+      "entity": "value-case",
+      "expect": {
+        "data/instant": { "instant": "1970-01-01T00:00:00.000000Z" },
+        "data/json": {
+          "json": {
+            "a": 0,
+            "n": 1e-7,
+            "numbers": [1e-7, 1e-6, 1e20, 1e21, 1250, 0],
+            "z": 1
+          }
+        },
+        "data/text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "facts": true,
+      "expect": [
+        [40, 69, 1, 1767225601000000, 5, 69, null],
+        [41, 65, 66, 0, 5, 69, null],
+        [
+          42,
+          65,
+          67,
+          "{\"a\":0,\"n\":1e-7,\"numbers\":[1e-7,0.000001,1e+20,1e+21,1250,0],\"z\":1}",
+          10,
+          69,
+          null
+        ],
+        [43, 65, 68, { "hex": "acd8119901e076ac8e31f2229d0422f64e69224b0c85ab0bd37a9d04eadeaf63" }, 8, 69, null]
+      ]
+    }
+  ]
+}

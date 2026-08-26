@@ -1,0 +1,40 @@
+{
+  "name": "values/int64-boundaries",
+  "comment": "Signed int64 values remain exact beyond JavaScript's safe-integer range, and overflow fails before storage.",
+  "steps": [
+    {
+      "tx": {
+        "id": "integer-boundaries",
+        "value/first-unsafe": 9007199254740993,
+        "value/max-int64": 9223372036854775807,
+        "value/min-int64": -9223372036854775808
+      }
+    },
+    {
+      "entity": "integer-boundaries",
+      "expect": {
+        "value/first-unsafe": 9007199254740993,
+        "value/max-int64": 9223372036854775807,
+        "value/min-int64": -9223372036854775808
+      }
+    },
+    {
+      "q": {
+        "find": ["?value"],
+        "where": [
+          ["integer-boundaries", "value/max-int64", "?value"],
+          ["=", "?value", 9223372036854775807]
+        ]
+      },
+      "expect": { "columns": ["?value"], "rows": [[9223372036854775807]] }
+    },
+    {
+      "tx": { "id": "integer-overflow", "value/int": 9223372036854775808 },
+      "error": "TypeError"
+    },
+    {
+      "tx": { "id": "integer-underflow", "value/int": -9223372036854775809 },
+      "error": "TypeError"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "name": "query/unicode-and-constants",
+  "comment": "Text predicates and result ordering use Unicode code-point order, while malformed wire constants fail as QueryError rather than looking absent.",
+  "steps": [
+    {
+      "tx": [
+        { "id": "text-z", "text/value": "z" },
+        { "id": "text-a-umlaut", "text/value": "ä" },
+        { "id": "text-private", "text/value": "" },
+        { "id": "text-emoji", "text/value": "😀" }
+      ]
+    },
+    {
+      "q": {
+        "find": ["?value"],
+        "where": [["?entity", "text/value", "?value"]],
+        "order": [["?value", "asc"]]
+      },
+      "expect": { "columns": ["?value"], "rows": [["z"], ["ä"], [""], ["😀"]] }
+    },
+    {
+      "q": {
+        "find": ["?value"],
+        "where": [["?entity", "text/value", "?value"], [">", "?value", "z"]],
+        "order": [["?value", "asc"]]
+      },
+      "expect": { "columns": ["?value"], "rows": [["ä"], [""], ["😀"]] }
+    },
+    {
+      "q": {
+        "find": ["?value"],
+        "where": [["?entity", "text/value", "?value"]],
+        "order": []
+      },
+      "expect": { "columns": ["?value"], "rows": [["😀"], [""], ["ä"], ["z"]] }
+    },
+    {
+      "q": {
+        "find": ["?entity"],
+        "where": [["?entity", "text/value", { "bytes": "%%%" }]]
+      },
+      "error": "QueryError"
+    }
+  ]
+}

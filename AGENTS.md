@@ -1,51 +1,52 @@
-# AGENTS.md (Project)
+# AGENTS.md
 
-Context and rules for AI agents working in this repository. Humans should start with `README.md`.
+Guidance for coding agents working on fgraph. Humans should start with `README.md`.
 
-## Project overview
+## Contract
 
-- **Name**: fgraph — an embedded temporal fact store in a single SQLite file (Datomic-inspired EAVT model, JSON-native, hybrid search, MCP server).
-- **Normative source**: `SPEC.md` defines the file format, semantics, query language, APIs, CLI, MCP tools, and milestones. When SPEC.md and any other file (including this one) disagree, SPEC.md wins. Do not change SPEC.md casually — it is the contract between the twin implementations; propose spec changes explicitly.
-- **Twin implementations**: `python/` (uv, stdlib-only core) and `go/` (module `github.com/fmind/fgraph/go`, `modernc.org/sqlite`, CGO-free). Both are primary tier: every behavior lands in both, verified by `conformance/`.
+- `docs/content/docs/spec.md` is normative for the file format, semantics, query language, APIs, CLI, MCP, and release proof. When another file disagrees, the specification wins.
+- Python, Go, and TypeScript are equal native implementations. Normative behavior must land in all three and be covered by `conformance/`.
+- Keep the embedded core simple: one SQLite file, deterministic behavior, no core network calls, and no speculative features.
 
-## Skills to load
+## Coding rules
 
-- `~/.agents/skills/python-stack/SKILL.md` for all work in `python/` (uv, Ruff, ty, pytest; library+CLI profile, Typer).
-- `~/.agents/skills/go-stack/SKILL.md` for all work in `go/` (golangci-lint, gofumpt/goimports, gotestsum, urfave/cli/v3).
-- `~/.agents/skills/hugo/SKILL.md` for `docs/` (Hugo extended + Hextra + GitHub Pages).
-- `~/.agents/skills/mise/SKILL.md`, `lefthook`, `dprint`, `github-actions`, `conventional-commit`, `readme-agents` as referenced by the stacks.
-- Use the **latest stable** release of every tool and dependency; verify versions online before pinning.
+- Read the relevant specification section and existing tests before changing behavior.
+- Parse external input into validated types at the boundary. Return the shared typed error taxonomy with useful context; never swallow an error.
+- Preserve deterministic ids, integer-microsecond timestamps, canonical JSON, event identities, allocation order, and ordered logical rows.
+- Prefer small functions and flat packages. Remove duplication, but do not create abstractions without a second concrete use.
+- Comment the reason for a non-obvious invariant or trade-off, not the syntax.
+- Keep core code and tests offline. Embeddings are always caller-provided or run through the explicit local subprocess boundary.
+- Never weaken an assertion, coverage threshold, type, lint rule, or conformance expectation to make a gate pass.
 
-## Setup & core commands
+## Language conventions
 
-All work goes through `mise` (see `mise.toml`); git hooks and CI call the same tasks.
+- **Python:** use uv, modern type annotations, Ruff, ty, and pytest. The core under `python/src/fgraph/` stays standard-library-only.
+- **Go:** pass `context.Context` to I/O and long-running operations, wrap errors with `%w`, close resources promptly, and format with goimports plus gofumpt. The module is CGO-free.
+- **TypeScript:** use strict ESM, explicit public types, `bigint` for lossless wire integers, Prettier, oxlint, strict `tsc`, and Vitest. Avoid `any` and unsafe casts.
+- Verify dependency APIs against the installed source and current primary documentation before coding against them.
 
-- Install: `mise trust && mise install`, then `mise run install`.
-- Format: `mise run format` — dprint + ruff + goimports/gofumpt.
-- Check: `mise run check` — dprint check, gitleaks, ruff/ty/pip-audit (python), golangci-lint/govulncheck (go), strict docs build.
-- Test: `mise run test` — pytest and gotestsum with **95% coverage gates**, docs link check, and `test:cross` (cross-implementation file compatibility via `scripts/crosscheck.sh`).
-- Build: `mise run build` — wheel/sdist, `go/bin/fgraph`, docs site.
-- Everything: `mise run all`.
+## Workflow
 
-## Definition of done
+All development commands come from `mise.toml`; hooks and CI call the same tasks.
 
-A change is complete only when `mise run all` passes warning-free, the relevant `conformance/` cases are green in **both** implementations, and new or changed behavior has a test plus (when normative) a conformance case. Never weaken an assertion, skip a test, loosen a type, lower the coverage gate, or suppress a lint error to force green — fix the root cause. The `examples/` are acceptance tests: fix the implementation to match them, not the reverse (unless SPEC.md says otherwise).
+- `mise run install` installs locked dependencies and hooks.
+- `mise run format` formats every language and document.
+- `mise run check` runs static, type, security, workflow, version, and docs checks.
+- `mise run test` runs native suites, shared conformance, differential traces, fixtures, examples, package smokes, and docs links.
+- `mise run build` builds all packages, the Go CLI, and the docs site.
+- `mise run all` is the complete local acceptance gate.
 
-## Conventions
-
-- **Determinism is sacred**: allocation order, timestamps (integer microseconds, injectable clock), canonical JSON, and format constants in SPEC.md §4 produce byte-identical files across implementations. Any deviation is a bug.
-- **Errors**: typed taxonomy from SPEC.md §10 in both languages; wrap with context; never swallow.
-- **No network in core or tests**; embeddings are always caller-provided.
-- **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`); never commit unless explicitly asked; no attribution or co-author trailers.
-- **Simplicity**: implement what SPEC.md requires, nothing more. No speculative abstractions, options, or "enterprise" features.
+Run focused tests while iterating, then `mise run check` and `mise run test`. A release candidate must pass `mise run all` warning-free from a clean checkout.
 
 ## Repository layout
 
-- `SPEC.md` — normative specification and implementation milestones (start here).
-- `python/` — Python implementation (uv project; `src/fgraph/`, `tests/`).
-- `go/` — Go implementation (`fgraph.go` library at module root, `cmd/fgraph/` CLI).
-- `conformance/` — shared JSON test cases + `crosscheck.ndjson` scenario; both implementations run every case.
-- `examples/` — runnable Python (PEP 723 scripts) and Go examples.
-- `docs/` — Hugo + Hextra documentation site, deployed by `.github/workflows/pages.yml`.
-- `scripts/crosscheck.sh` — cross-implementation file-compatibility check (`mise run test:cross`).
-- `mise.toml` / `lefthook.yml` / `dprint.json` — task runner (single source of truth), git hooks, config formatting.
+- `docs/content/docs/spec.md` — normative fgraph v1 / SQLite format-v2 contract.
+- `python/`, `go/`, `typescript/` — peer libraries and CLIs.
+- `conformance/` — shared cases, differential scenario, and immutable format-v2 fixture.
+- `examples/` — runnable acceptance examples for every runtime.
+- `docs/` — Hugo documentation site.
+- `skills/` — installable Agent Skills for using fgraph.
+- `scripts/` — cross-runtime, fixture, benchmark, and release helpers.
+- `mise.toml`, `lefthook.yml`, `dprint.json` — canonical tasks, hooks, and formatting.
+
+Do not commit, push, publish, or change the durable contract unless the task explicitly authorizes it. Use Conventional Commits and never add generated-code attribution or co-author trailers.

@@ -1,6 +1,9 @@
 # Examples
 
-Runnable examples for both implementations. They are **acceptance tests**: once v0.1 lands they must run exactly as written (`SPEC.md` §15 M6 wires them into CI) — fix the implementation, not the examples.
+Runnable examples for all three implementations. They are **acceptance tests** and run through `mise run test:examples` — fix the implementation to match them, not the reverse.
 
-- Python (PEP 723 scripts): `uv run examples/python/quickstart.py`
-- Go: `go run -C examples/go ./quickstart` (a `replace` directive targets the local `go/` module)
+- Python quickstart: `uv run --project python python examples/python/quickstart.py`
+- Python retry-safe agent memory: run `examples/python/agent_memory.py` from a disposable directory with the same `uv run --project python python` prefix.
+- Go quickstart: `go run -C examples/go ./quickstart` (a `replace` directive targets the local `go/` module)
+- Go knowledge base: run `go run -C examples/go ./knowledgebase` from a disposable directory.
+- TypeScript: `mise run build:typescript && node examples/typescript/quickstart.mjs`

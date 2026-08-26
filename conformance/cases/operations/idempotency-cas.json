@@ -1,0 +1,136 @@
+{
+  "steps": [
+    {
+      "tx": { "id": "counter", "counter/value": 1 },
+      "options": { "operation_id": "counter:create", "if_basis_tx": 64 },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 64,
+        "tx": 67,
+        "ids": { "counter": 65 },
+        "...": true
+      }
+    },
+    {
+      "tx": { "id": "counter", "counter/value": 1 },
+      "options": { "operation_id": "counter:create", "if_basis_tx": 64 },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 64,
+        "tx": 67,
+        "ids": {},
+        "asserted": [],
+        "retracted": [],
+        "...": true
+      }
+    },
+    {
+      "receipt": 67,
+      "expect": {
+        "basis_tx": 64,
+        "read_basis_tx": 67,
+        "tx": 67,
+        "at": 1767225601000000,
+        "operation_id": "counter:create",
+        "request_hash": "sha256:cdedfef141d3b01f87af331d0bf0c4ba76aa6ef46f83345710ce39970eb799cc",
+        "facts": [],
+        "...": true
+      }
+    },
+    {
+      "tx": { "id": "counter", "counter/value": 2 },
+      "options": { "operation_id": "counter:create", "if_basis_tx": 67 },
+      "error": "Conflict"
+    },
+    {
+      "tx": ["cas", "counter", "counter/value", 1, 2],
+      "options": { "operation_id": "counter:advance", "if_basis_tx": 64 },
+      "error": "Conflict"
+    },
+    {
+      "tx": ["cas", "counter", "counter/value", 1, 2],
+      "options": { "operation_id": "counter:advance", "if_basis_tx": 67 },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 67,
+        "tx": 68,
+        "ids": {},
+        "...": true
+      }
+    },
+    {
+      "tx": ["cas", "counter", "counter/value", 1, 2],
+      "options": { "operation_id": "counter:advance", "if_basis_tx": 67 },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 67,
+        "tx": 68,
+        "...": true
+      }
+    },
+    {
+      "tx": ["cas", "counter", "counter/value", 1, 3],
+      "options": { "operation_id": "counter:wrong-cas", "if_basis_tx": 68 },
+      "error": "Conflict"
+    },
+    { "entity": "counter", "expect": { "counter/value": 2 } },
+    { "declare": { "attr": "counter/optional", "type": "text" } },
+    {
+      "declare": {
+        "attr": "counter/tags",
+        "type": "text",
+        "many": true
+      }
+    },
+    {
+      "tx": [
+        "cas",
+        "counter",
+        "counter/optional",
+        { "missing": true },
+        "present"
+      ],
+      "expect": { "status": "applied", "...": true }
+    },
+    {
+      "tx": [
+        "cas",
+        "counter",
+        "counter/optional",
+        "present",
+        { "missing": true }
+      ],
+      "expect": { "status": "applied", "...": true }
+    },
+    { "entity": "counter", "expect": { "counter/value": 2 } },
+    {
+      "tx": ["cas", "counter", "counter/tags", "a", "b"],
+      "error": "SchemaError"
+    },
+    {
+      "tx": [
+        "cas",
+        "counter",
+        "counter/optional",
+        { "missing": false },
+        "bad"
+      ],
+      "error": "TypeError"
+    },
+    {
+      "tx": [
+        ["cas", "counter", "counter/value", 2, 3],
+        ["assert", "counter", "counter/value", 4]
+      ],
+      "error": "Conflict"
+    },
+    {
+      "tx": ["cas", "missing/entity", "counter/value", 2, 3],
+      "error": "NotFound"
+    },
+    {
+      "tx": ["cas", "counter", "missing/attribute", 2, 3],
+      "error": "NotFound"
+    }
+  ]
+}

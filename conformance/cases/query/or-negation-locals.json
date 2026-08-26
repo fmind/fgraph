@@ -1,0 +1,67 @@
+{
+  "name": "query/or-negation-locals",
+  "comment": "Variables introduced only inside correlated negation are existential locals, not outward OR branch bindings.",
+  "steps": [
+    {
+      "tx": { "id": "or-subject", "item/root": true }
+    },
+    {
+      "q": {
+        "find": ["?entity"],
+        "where": [
+          ["?entity", "item/root", true],
+          {
+            "or": [
+              [{ "not": [["?entity", "item/left", "?left"]] }],
+              [{ "not": [["?entity", "item/right", "?right"]] }]
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "columns": ["?entity"],
+        "rows": [[{ "ref": "or-subject" }]]
+      }
+    },
+    {
+      "q": {
+        "find": ["?local"],
+        "where": [
+          ["?entity", "item/missing", true],
+          { "not": [["?entity", "item/left", "?local"]] }
+        ]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [
+          "?entity"
+        ],
+        "where": [
+          [
+            "?entity",
+            "item/missing",
+            true
+          ],
+          {
+            "not": [
+              [
+                "?entity",
+                "item/left",
+                "?local"
+              ]
+            ]
+          }
+        ],
+        "order": [
+          [
+            "?local",
+            "asc"
+          ]
+        ]
+      },
+      "error": "QueryError"
+    }
+  ]
+}

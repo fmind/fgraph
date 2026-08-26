@@ -1,0 +1,58 @@
+{
+  "name": "direct transaction request hashes use one portable logical envelope",
+  "steps": [
+    {
+      "tx": { "id": "request/item", "request/value": 1 },
+      "options": {
+        "source": "import",
+        "by": "agent",
+        "meta": { "batch": 1 },
+        "tx": { "audit/tag": "v1" },
+        "operation_id": "request:1",
+        "if_basis_tx": 64
+      },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 64,
+        "tx": 68,
+        "at": 1767225601000000,
+        "...": true
+      }
+    },
+    {
+      "receipt": 68,
+      "expect": {
+        "basis_tx": 64,
+        "read_basis_tx": 68,
+        "tx": 68,
+        "operation_id": "request:1",
+        "request_hash": "sha256:2654a9fadec897e85cbf361b964e15afedab66f2ed200a63e0cc13198647c8ee",
+        "by": "agent",
+        "source": "import",
+        "meta": { "batch": 1 },
+        "facts": [{ "a": "audit/tag", "v": "v1", "...": true }],
+        "...": true
+      }
+    },
+    {
+      "tx": { "id": "request/item", "request/value": 1 },
+      "options": {
+        "source": "import",
+        "by": "agent",
+        "meta": { "batch": 1 },
+        "tx": { "audit/tag": "v1" },
+        "operation_id": "request:1",
+        "if_basis_tx": 64
+      },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 64,
+        "tx": 68,
+        "ids": {},
+        "asserted": [],
+        "retracted": [],
+        "...": true
+      }
+    }
+  ]
+}

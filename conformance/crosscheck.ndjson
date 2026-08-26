@@ -1,5 +1,11 @@
 {"id": "ada", "person/name": "Ada Lovelace", "person/born": 1815}
 {"id": "grace", "person/name": "Grace Hopper"}
+{"id": "domain-event", "fgraph/at": {"instant": "2026-02-01T00:00:00Z"}}
 {"id": "ada", "person/knows": {"ref": "grace"}}
 {"id": "ada", "person/born": 1816}
 ["retract", "grace", "person/name", "Grace Hopper"]
+{"id":"value-case","data/bytes":{"bytes":"AAEC"},"data/float":1e20,"data/instant":{"instant":"2026-08-24T10:00:00Z"},"data/json":{"json":{"z":1.0,"a":-0.0,"n":1e-7}},"data/text":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","data/vector":{"vector":[0.1,-0.2]}}
+[{"id":{"tmp":"t1"},"node/value":"temporary"},{"id":"holder","node/link":{"ref":{"tmp":"t1"}}}]
+{"id":"user/email","fgraph/type":"text","fgraph/unique":true}
+{"id":"owner-a","user/email":"move@example.test"}
+[["retract","owner-a","user/email","move@example.test"],["assert","owner-b","user/email","move@example.test"]]

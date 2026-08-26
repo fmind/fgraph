@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="chart-title chart-description" viewBox="0 0 920 560">
+<title id="chart-title">Fresh-process read latency at 100,000 entities</title><desc id="chart-description">Median end-to-end CLI latency: point get, scalar filter, connected join, keyword search, and vector search.</desc>
+<rect width="920" height="560" fill="#0F172A"/>
+<rect x="90" y="55" width="800" height="380" fill="#1E293B" stroke="#334155"/>
+<text x="460.0" y="28" text-anchor="middle" font-family="'Outfit Variable', Outfit, sans-serif" font-size="20" font-weight="600" fill="#F8FAFC">Fresh-process read latency at 100,000 entities</text>
+<line x1="90" y1="435.0" x2="890" y2="435.0" stroke="#334155"/>
+<text x="80" y="439.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.0</text>
+<line x1="90" y1="359.0" x2="890" y2="359.0" stroke="#334155"/>
+<text x="80" y="363.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.2</text>
+<line x1="90" y1="283.0" x2="890" y2="283.0" stroke="#334155"/>
+<text x="80" y="287.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.4</text>
+<line x1="90" y1="207.0" x2="890" y2="207.0" stroke="#334155"/>
+<text x="80" y="211.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.5</text>
+<line x1="90" y1="131.0" x2="890" y2="131.0" stroke="#334155"/>
+<text x="80" y="135.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.7</text>
+<line x1="90" y1="55.0" x2="890" y2="55.0" stroke="#334155"/>
+<text x="80" y="59.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.9</text>
+<polyline points="90.0,326.2 290.0,312.1 490.0,300.5 690.0,89.5 890.0,98.7" fill="none" stroke="#646CFF" stroke-width="3"/>
+<circle cx="90.0" cy="326.2" r="5" fill="#646CFF"/>
+<circle cx="290.0" cy="312.1" r="5" fill="#646CFF"/>
+<circle cx="490.0" cy="300.5" r="5" fill="#646CFF"/>
+<circle cx="690.0" cy="89.5" r="5" fill="#646CFF"/>
+<circle cx="890.0" cy="98.7" r="5" fill="#646CFF"/>
+<polyline points="90.0,371.1 290.0,361.8 490.0,334.3 690.0,130.9 890.0,140.0" fill="none" stroke="#22D3EE" stroke-width="3" stroke-dasharray="8 5"/>
+<rect x="85.0" y="366.1" width="10" height="10" fill="#22D3EE"/>
+<rect x="285.0" y="356.8" width="10" height="10" fill="#22D3EE"/>
+<rect x="485.0" y="329.3" width="10" height="10" fill="#22D3EE"/>
+<rect x="685.0" y="125.9" width="10" height="10" fill="#22D3EE"/>
+<rect x="885.0" y="135.0" width="10" height="10" fill="#22D3EE"/>
+<polyline points="90.0,314.4 290.0,336.9 490.0,304.3 690.0,123.9 890.0,132.9" fill="none" stroke="#FB923C" stroke-width="3" stroke-dasharray="2 4"/>
+<path d="M 90.0 308.4 L 96.0 314.4 L 90.0 320.4 L 84.0 314.4 Z" fill="#FB923C"/>
+<path d="M 290.0 330.9 L 296.0 336.9 L 290.0 342.9 L 284.0 336.9 Z" fill="#FB923C"/>
+<path d="M 490.0 298.3 L 496.0 304.3 L 490.0 310.3 L 484.0 304.3 Z" fill="#FB923C"/>
+<path d="M 690.0 117.9 L 696.0 123.9 L 690.0 129.9 L 684.0 123.9 Z" fill="#FB923C"/>
+<path d="M 890.0 126.9 L 896.0 132.9 L 890.0 138.9 L 884.0 132.9 Z" fill="#FB923C"/>
+<text x="90.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">1</text>
+<text x="290.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">2</text>
+<text x="490.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">3</text>
+<text x="690.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">4</text>
+<text x="890.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">5</text>
+<line x1="90" y1="537" x2="114" y2="537" stroke="#646CFF" stroke-width="3"/>
+<circle cx="102.0" cy="537.0" r="5" fill="#646CFF"/>
+<text x="124" y="542" font-family="'Inter Variable', Inter, sans-serif" font-size="13" fill="#F8FAFC">python</text>
+<line x1="240" y1="537" x2="264" y2="537" stroke="#22D3EE" stroke-width="3" stroke-dasharray="8 5"/>
+<rect x="247.0" y="532.0" width="10" height="10" fill="#22D3EE"/>
+<text x="274" y="542" font-family="'Inter Variable', Inter, sans-serif" font-size="13" fill="#F8FAFC">go</text>
+<line x1="390" y1="537" x2="414" y2="537" stroke="#FB923C" stroke-width="3" stroke-dasharray="2 4"/>
+<path d="M 402.0 531.0 L 408.0 537.0 L 402.0 543.0 L 396.0 537.0 Z" fill="#FB923C"/>
+<text x="424" y="542" font-family="'Inter Variable', Inter, sans-serif" font-size="13" fill="#F8FAFC">typescript</text>
+<text x="490.0" y="492" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="13" fill="#CBD5E1">1 get · 2 scalar filter · 3 join · 4 keyword · 5 vector</text>
+<text x="20" y="245.0" transform="rotate(-90 20 245.0)" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="13" fill="#CBD5E1">seconds (median)</text>
+</svg>

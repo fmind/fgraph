@@ -1,0 +1,72 @@
+{
+  "name": "@fmind/fgraph",
+  "version": "1.0.0",
+  "description": "Embedded temporal fact store in a single SQLite file",
+  "author": "Médéric Hurier",
+  "license": "MIT",
+  "homepage": "https://fmind.github.io/fgraph/",
+  "bugs": {
+    "url": "https://github.com/fmind/fgraph/issues"
+  },
+  "keywords": [
+    "agent-memory",
+    "fact-store",
+    "mcp",
+    "sqlite",
+    "temporal"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fmind/fgraph.git",
+    "directory": "typescript"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "fgraph": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint --deny-warnings src test",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "better-sqlite3": "13.0.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.13.3",
+    "@vitest/coverage-v8": "4.1.11",
+    "oxlint": "1.80.0",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
+  }
+}

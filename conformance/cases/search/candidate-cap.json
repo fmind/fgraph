@@ -1,0 +1,236 @@
+{
+  "name": "search/candidate-cap",
+  "comment": "Candidate truncation requires proof of at least one additional eligible entity beyond the safety cap.",
+  "steps": [
+    {
+      "tx": [
+        {
+          "id": "cap-00",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-01",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-02",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-03",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-04",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-05",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-06",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-07",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-08",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-09",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-10",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-11",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-12",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-13",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-14",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-15",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-16",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-17",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-18",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-19",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-20",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-21",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-22",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-23",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-24",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-25",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-26",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-27",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-28",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-29",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-30",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-31",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-32",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-33",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-34",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-35",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-36",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-37",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-38",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-39",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-40",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-41",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-42",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-43",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-44",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-45",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-46",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-47",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-48",
+          "search/text": "candidate cap phrase"
+        },
+        {
+          "id": "cap-49",
+          "search/text": "candidate cap phrase"
+        }
+      ]
+    },
+    {
+      "search": {
+        "text": "candidate cap",
+        "k": 10
+      },
+      "expect": {
+        "truncated": false,
+        "...": true
+      }
+    },
+    {
+      "tx": {
+        "id": "cap-50",
+        "search/text": "candidate cap phrase"
+      }
+    },
+    {
+      "search": {
+        "text": "candidate cap",
+        "k": 10
+      },
+      "expect": {
+        "truncated": true,
+        "...": true
+      }
+    }
+  ]
+}

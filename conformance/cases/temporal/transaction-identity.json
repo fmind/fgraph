@@ -1,0 +1,46 @@
+{
+  "name": "temporal/transaction-identity",
+  "comment": "Only a self-receipt (e = tx with fgraph/at) identifies a transaction; an ordinary domain fact may legally use fgraph/at without becoming a transaction.",
+  "steps": [
+    {
+      "tx": { "id": "domain-event", "fgraph/at": { "instant": "2026-02-01T00:00:00Z" } },
+      "expect": { "tx": 66, "...": true }
+    },
+    { "at": 65, "error": "NotFound" },
+    { "at": -9223372036854775808, "error": "TypeError" },
+    { "at": 9223372036854775807, "error": "TypeError" },
+    { "at": -9223372036854775809, "error": "TypeError" },
+    { "at": 9223372036854775808, "error": "TypeError" },
+    {
+      "at": 66,
+      "steps": [
+        {
+          "entity": "domain-event",
+          "expect": { "fgraph/at": { "instant": "2026-02-01T00:00:00.000000Z" } }
+        }
+      ]
+    },
+    {
+      "at": "2026-02-01T00:00:00Z",
+      "steps": [
+        {
+          "entity": "domain-event",
+          "expect": { "fgraph/at": { "instant": "2026-02-01T00:00:00.000000Z" } }
+        }
+      ]
+    },
+    {
+      "tx": { "id": "after", "event/name": "After" },
+      "expect": { "tx": 69, "...": true }
+    },
+    {
+      "facts": true,
+      "expect": [
+        [40, 66, 1, 1767225601000000, 5, 66, null],
+        [41, 65, 1, 1769904000000000, 5, 66, null],
+        [42, 69, 1, 1767225602000000, 5, 69, null],
+        [43, 67, 68, "After", 4, 69, null]
+      ]
+    }
+  ]
+}

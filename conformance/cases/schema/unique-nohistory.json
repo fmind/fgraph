@@ -1,0 +1,40 @@
+{
+  "name": "schema/unique-nohistory",
+  "comment": "Unique values drive unpinned upserts, pinned identities still conflict, and nohistory physically removes superseded facts until explicitly disabled.",
+  "steps": [
+    { "declare": { "attr": "user/email", "type": "text", "unique": true }, "expect": { "tx": 66, "...": true } },
+    {
+      "tx": { "id": "ada", "user/email": "ada@example.test" },
+      "expect": { "tx": 68, "ids": { "ada": 67 }, "...": true }
+    },
+    { "tx": { "user/email": "ada@example.test", "user/name": "Ada" }, "expect": { "tx": 70, "...": true } },
+    {
+      "entity": "ada",
+      "expect": { "user/email": "ada@example.test", "user/name": "Ada" }
+    },
+    { "tx": { "user/email": "ada@example.test" }, "expect": { "tx": null, "...": true } },
+    { "tx": { "id": "later", "later/value": 1 }, "expect": { "tx": 73, "ids": { "later": 71 }, "...": true } },
+    {
+      "tx": { "id": "grace", "user/email": "ada@example.test" },
+      "error": "Conflict"
+    },
+    { "declare": { "attr": "session/token", "type": "text", "nohistory": true } },
+    { "tx": { "id": "session", "session/token": "one" } },
+    { "tx": { "id": "session", "session/token": "two" } },
+    {
+      "history": ["session", "session/token"],
+      "expect": [
+        { "e": "session", "a": "session/token", "v": "two", "rx": null, "...": true }
+      ]
+    },
+    { "declare": { "attr": "session/token", "nohistory": false } },
+    { "tx": { "id": "session", "session/token": "three" } },
+    {
+      "history": ["session", "session/token"],
+      "expect": [
+        { "e": "session", "a": "session/token", "v": "two", "...": true },
+        { "e": "session", "a": "session/token", "v": "three", "rx": null, "...": true }
+      ]
+    }
+  ]
+}

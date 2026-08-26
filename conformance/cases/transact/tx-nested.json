@@ -1,0 +1,29 @@
+{
+  "name": "transact/tx-nested",
+  "comment": "Custom transaction facts use normal nested-ref map semantics and all referenced identities are allocated before the transaction entity.",
+  "steps": [
+    { "declare": { "attr": "audit/actor", "ref": true } },
+    {
+      "tx": { "id": "subject", "subject/value": 1 },
+      "options": {
+        "tx": {
+          "audit/actor": { "id": "agent", "person/name": "Agent" }
+        }
+      },
+      "expect": {
+        "tx": 71,
+        "ids": { "subject": 67, "agent": 69 },
+        "...": true
+      }
+    },
+    {
+      "entity": 71,
+      "expect": {
+        "audit/actor": { "ref": "agent" },
+        "fgraph/at": { "instant": "2026-01-01T00:00:02.000000Z" }
+      }
+    },
+    { "entity": "agent", "expect": { "person/name": "Agent" } },
+    { "entity": "subject", "expect": { "subject/value": 1 } }
+  ]
+}

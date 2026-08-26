@@ -1,0 +1,277 @@
+{
+  "name": "query/clauses-aggregates",
+  "comment": "Inputs, predicates, negation, disjunction, ordering, pagination, and grouped aggregates share one canonical result model.",
+  "steps": [
+    {
+      "tx": [
+        {
+          "id": "alice",
+          "person/active": true,
+          "person/name": "Alice",
+          "person/age": 35,
+          "person/city": "Lyon",
+          "person/status": "active"
+        },
+        {
+          "id": "bob",
+          "person/active": false,
+          "person/name": "Bob",
+          "person/age": 42,
+          "person/city": "Metz",
+          "person/status": "active"
+        },
+        {
+          "id": "charlie",
+          "person/active": true,
+          "person/name": "Charlie",
+          "person/age": 30,
+          "person/city": "Paris",
+          "person/status": "archived"
+        }
+      ]
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [
+          ["?e", "person/name", "?name"],
+          ["?e", "person/age", "?age"],
+          [">=", "?age", "?min"],
+          { "not": [["?e", "person/status", "archived"]] },
+          { "or": [[["?e", "person/city", "Lyon"]], [["?e", "person/city", "Metz"]]] }
+        ],
+        "in": ["?min"],
+        "order": [["?name", "desc"]],
+        "limit": 2,
+        "offset": 0
+      },
+      "args": { "?min": 34 },
+      "expect": { "columns": ["?name"], "rows": [["Bob"], ["Alice"]] }
+    },
+    {
+      "q": {
+        "find": ["?city", ["count", "?e"]],
+        "where": [["?e", "person/city", "?city"]],
+        "order": [["?city", "asc"]]
+      },
+      "expect": {
+        "columns": ["?city", "count(?e)"],
+        "rows": [["Lyon", 1], ["Metz", 1], ["Paris", 1]]
+      }
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [["?e", "person/name", "?name"], ["starts-with", "?name", "A"], ["contains", "?name", "lic"]]
+      },
+      "expect": { "columns": ["?name"], "rows": [["Alice"]] }
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "person/name", "_"], ["=", "?e", 65]]
+      },
+      "expect": { "columns": ["?e"], "rows": [] }
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "person/name", "_"], ["!=", "?e", 65]],
+        "order": [["?e", "asc"]]
+      },
+      "expect": {
+        "columns": ["?e"],
+        "rows": [[{ "ref": "alice" }], [{ "ref": "bob" }], [{ "ref": "charlie" }]]
+      }
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "person/name", "_"], ["<", "?e", 65]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [
+          ["?e", "person/name", "?name"],
+          ["?e", "person/age", "?age"],
+          ["=", "?age", 35.0]
+        ]
+      },
+      "expect": { "columns": ["?name"], "rows": [["Alice"]] }
+    },
+    {
+      "q": {
+        "find": ["?name", "?active"],
+        "where": [["?e", "person/name", "?name"], ["?e", "person/active", "?active"]],
+        "order": [["?active", "asc"], ["?name", "asc"]]
+      },
+      "expect": {
+        "columns": ["?name", "?active"],
+        "rows": [["Bob", false], ["Alice", true], ["Charlie", true]]
+      }
+    },
+    {
+      "q": { "find": ["?name"], "where": [["?e", "person/name", "?name"]], "limit": 0 },
+      "expect": { "columns": ["?name"], "rows": [] }
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [["?e", "person/age", 999], { "not": [["?unbound", "person/age", 35]] }]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?name"],
+        "where": [["?e", "person/name", "?name"]],
+        "limti": 1
+      },
+      "error": "QueryError"
+    },
+    {
+      "tx": [
+        { "id": "lower", "metric/value": 9007199254740992 },
+        { "id": "higher", "metric/value": 9007199254740993 }
+      ]
+    },
+    {
+      "q": {
+        "find": ["?e", "?value"],
+        "where": [["?e", "metric/value", "?value"], [">", "?value", 9007199254740992]],
+        "order": [["?value", "asc"]]
+      },
+      "expect": { "columns": ["?e", "?value"], "rows": [[{ "ref": "higher" }, 9007199254740993]] }
+    },
+    {
+      "q": {
+        "find": [["sum", "?value"]],
+        "where": [["?e", "metric/value", "?value"]]
+      },
+      "expect": { "columns": ["sum(?value)"], "rows": [[18014398509481985]] }
+    },
+    {
+      "q": {
+        "find": [
+          ["count", "?value"],
+          ["count-distinct", "?value"],
+          ["sum", "?value"],
+          ["min", "?value"],
+          ["max", "?value"],
+          ["avg", "?value"]
+        ],
+        "where": [["?e", "missing/value", "?value"]]
+      },
+      "expect": {
+        "columns": [
+          "count(?value)",
+          "count-distinct(?value)",
+          "sum(?value)",
+          "min(?value)",
+          "max(?value)",
+          "avg(?value)"
+        ],
+        "rows": [[0, 0, null, null, null, null]]
+      }
+    },
+    {
+      "tx": [
+        { "id": "overflow-max", "overflow/value": 9223372036854775807 },
+        { "id": "overflow-one", "overflow/value": 1 }
+      ]
+    },
+    {
+      "q": {
+        "find": [["sum", "?value"]],
+        "where": [["?e", "overflow/value", "?value"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "tx": [
+        { "id": "float-overflow-one", "float-overflow/value": 1e+308 },
+        { "id": "float-overflow-two", "float-overflow/value": 1.1e+308 }
+      ]
+    },
+    {
+      "q": {
+        "find": [["sum", "?value"]],
+        "where": [["?e", "float-overflow/value", "?value"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "tx": [
+        { "id": "key-one", "key/a": "x", "key/b": "z" },
+        {
+          "id": "key-two",
+          "key/a": "x;?b=4:y",
+          "key/b": "y;?b=4:z"
+        }
+      ]
+    },
+    {
+      "q": {
+        "find": ["?a", "?b"],
+        "where": [["?left", "key/a", "?a"], ["?right", "key/b", "?b"]],
+        "order": [["?a", "asc"], ["?b", "asc"]]
+      },
+      "expect": {
+        "columns": ["?a", "?b"],
+        "rows": [
+          ["x", "y;?b=4:z"],
+          ["x", "z"],
+          ["x;?b=4:y", "y;?b=4:z"],
+          ["x;?b=4:y", "z"]
+        ]
+      }
+    },
+    {
+      "q": {
+        "find": [["min", "?name"]],
+        "where": [["?e", "person/name", "?name"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": [["max", "?active"]],
+        "where": [["?e", "person/active", "?active"]]
+      },
+      "error": "QueryError"
+    },
+    {
+      "q": {
+        "find": ["?e"],
+        "where": [],
+        "rules": { "head": ["single", "?e"], "body": [] }
+      },
+      "error": "QueryError"
+    },
+    { "declare": { "attr": "mixed/value", "many": true } },
+    { "tx": { "id": "mixed-owner", "mixed/value": [1, 1.0] } },
+    {
+      "q": {
+        "find": ["?value", ["count", "?entity"]],
+        "where": [["?entity", "mixed/value", "?value"]]
+      },
+      "expect": {
+        "columns": ["?value", "count(?entity)"],
+        "rows": [[1, 1]]
+      }
+    },
+    {
+      "q": {
+        "find": [["count-distinct", "?value"]],
+        "where": [["?entity", "mixed/value", "?value"]]
+      },
+      "expect": {
+        "columns": ["count-distinct(?value)"],
+        "rows": [[2]]
+      }
+    }
+  ]
+}

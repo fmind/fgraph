@@ -1,0 +1,89 @@
+{
+  "name": "transact/tempids-retractions",
+  "comment": "Tempids unify across mixed map/op input, while entity retraction removes both owned facts and inbound references without deleting the permanent name.",
+  "steps": [
+    {
+      "tx": { "id": { "tmp": "unused" } },
+      "expect": { "tx": null, "at": null, "ids": {}, "asserted": [], "retracted": [], "...": true }
+    },
+    { "declare": { "attr": "person/friend", "ref": true, "many": true } },
+    {
+      "tx": [
+        { "id": { "tmp": "person" }, "person/name": "Temporary Person" },
+        { "id": "holder", "person/friend": { "ref": { "tmp": "person" } } },
+        ["assert", { "tmp": "person" }, "person/age", 42]
+      ],
+      "expect": { "ids": { "person": 67, "holder": 69 }, "...": true }
+    },
+    {
+      "q": {
+        "find": ["?name", "?age"],
+        "where": [
+          ["holder", "person/friend", "?person"],
+          ["?person", "person/name", "?name"],
+          ["?person", "person/age", "?age"]
+        ]
+      },
+      "expect": { "columns": ["?name", "?age"], "rows": [["Temporary Person", 42]] }
+    },
+    { "tx": { "id": "grace", "person/name": "Grace" } },
+    { "tx": { "id": "holder", "person/friend": { "ref": "grace" } } },
+    { "tx": ["retract", "grace"] },
+    { "entity": "grace", "expect": {} },
+    {
+      "entity": "holder",
+      "expect": { "person/friend": [{ "ref": 67 }] }
+    },
+    { "tx": ["retract", "holder", "person/friend"] },
+    { "entity": "holder", "expect": {} },
+    {
+      "tx": [
+        ["assert", "cancelled", "item/value", 1],
+        ["retract", "cancelled", "item/value", 1]
+      ],
+      "expect": {
+        "status": "applied",
+        "tx": 79,
+        "ids": { "cancelled": 77 },
+        "asserted": [{ "a": "fgraph/at", "e": 79, "...": true }],
+        "retracted": [],
+        "...": true
+      }
+    },
+    { "entity": "cancelled", "expect": {} },
+    { "tx": { "id": "ordered", "item/value": 1 } },
+    {
+      "tx": [
+        ["retract", "ordered", "item/value", 1],
+        ["assert", "ordered", "item/value", 1]
+      ],
+      "expect": { "tx": null, "asserted": [], "retracted": [], "...": true }
+    },
+    {
+      "history": ["ordered", "item/value"],
+      "expect": [{ "e": "ordered", "a": "item/value", "v": 1, "rx": null, "...": true }]
+    },
+    {
+      "tx": [
+        ["assert", "ordered", "item/value", 1],
+        ["retract", "ordered", "item/value", 1]
+      ]
+    },
+    { "entity": "ordered", "expect": {} },
+    {
+      "tx": [
+        ["retract", "fresh", "item/value", 2],
+        ["assert", "fresh", "item/value", 2]
+      ],
+      "expect": {
+        "asserted": [
+          { "a": "fgraph/at", "...": true },
+          { "e": "fresh", "a": "item/value", "v": 2, "...": true }
+        ],
+        "retracted": [],
+        "...": true
+      }
+    },
+    { "entity": "fresh", "expect": { "item/value": 2 } }
+  ]
+}

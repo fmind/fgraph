@@ -1,95 +1,235 @@
 # fgraph
 
-**A fact graph in a single SQLite file — every fact remembers when and why it became true, and when it stopped.**
+**A temporal fact graph in one SQLite file — schema-optional, attributable, portable, and built for local AI systems.**
 
-fgraph is an embedded temporal fact store. Knowledge is stored as immutable facts `⟨entity, attribute, value⟩` with full history: nothing is ever overwritten, changes supersede with both moments kept, and the past is one query away. No server, no schema migrations, no configuration — one file you can `cp`, inspect with any SQLite tool, and trust as an audit trail.
+fgraph stores knowledge as immutable EAV facts `⟨entity, attribute, value, asserted-tx, retracted-tx?⟩`. Current state is a view; history, provenance, and transaction receipts are first-class. It needs no server or loadable SQLite extension, yet provides bounded Datalog, keyword/vector search, exact snapshots, portable event replay, schema introspection, shapes, and a read-only-by-default MCP server.
 
-> **Status**: the [specification](SPEC.md) is complete; the v0.1 implementation is in progress. The examples below describe the specified target API.
+## Why fgraph
 
-## Why
+- **Universal data model.** Add facts immediately; declare only the attributes that need types, refs, cardinality, uniqueness, vector-model identity, or validation shapes.
+- **Time and provenance by construction.** `at`, `history`, `diff`, `why`, and durable receipts answer what changed, when, by whom, and from which source.
+- **Agent-safe writes.** Operation ids make retries idempotent; basis checks reject stale decisions; cardinality-one CAS supports atomic create/replace/delete; `undo` writes an audited compensation.
+- **Inspectable and portable schema.** Rich snapshots distinguish declared, effective, and observed behavior. A canonical `schema/1` manifest exports, checks, and atomically applies explicit declarations and shapes across runtimes.
+- **Attributable retrieval.** FTS5 + caller-provided vectors + exact filters + graph expansion return matched facts and their asserting provenance. Search work and outputs are explicitly bounded.
+- **Two honest portability paths.** `tail`/`apply` replicate logical `event/1` streams; `snapshot`/`restore` reproduce exact retained state, including history, receipts, and excision redactions.
+- **One file, three native runtimes.** Python, Go, and TypeScript write the same logical rows and read each other's files. Shared conformance, differential traces, and an immutable format-v2 fixture enforce the contract.
+- **Designed for local agents.** MCP is read-only unless `--write` is explicit, responses are capped, cursors are basis-pinned, and every tool publishes input/output schemas, safety annotations, and server instructions. No core code makes a network call.
 
-- **No upfront schema** — assert anything; declare an attribute only when it needs special behavior (reference, cardinality-many, unique, no-history). Perfect fit for LLM extraction output.
-- **Time travel built in** — `at()`, `history()`, `diff()`: the database as it was, the timeline of any fact, and what changed between two moments.
-- **Provenance as a feature** — every transaction records who/what/why (`source`, `by`, free metadata); `why()` answers "why do you believe this?" for any fact.
-- **Auditable agent memory** — most memory tools silently overwrite or endlessly append conflicting facts; fgraph supersedes with history, so agents get memory you can inspect, explain, `undo`, and roll back through.
-- **Built for the agent-VM era** — when every agent runs in its own VM or sandbox, memory must be a file, not a service: zero provisioning, snapshot/fork/restore are file operations, `fgraph tail --follow` gives the host an audit stream of the agent's memory without the agent's cooperation, and Litestream or `fgraph backup` replicate it off-VM.
-- **Hybrid search & lightweight RAG** — FTS5 keyword search + bring-your-own-embeddings vector search, fused with reciprocal rank fusion, plus graph expansion around hits. For local RAG, chunks become entities with text, embeddings, metadata, _and relations_ in one file — a Chroma-class store that also remembers why (comfortable to ~100k vectors, zero extra dependencies).
-- **One pure file** — plain SQLite tables, no extension needed to read your data, `:memory:` for tests, and read-only SQL views (`fgraph_now`, `fgraph_view`) as an escape hatch for pandas, Datasette, or any BI tool.
-- **Python and Go, no compromise** — twin native implementations bound by a shared conformance suite; the SQLite file is the interchange format.
+## Python quickstart
 
-## Quickstart (Python)
+From this checkout:
 
 ```bash
-pip install fgraph   # or: uv add fgraph
+uv sync --project python
+uv run --project python python examples/python/quickstart.py
 ```
+
+The stable registry installation is `uv add 'fgraph>=1,<2'`.
 
 ```python
 import fgraph
 
-db = fgraph.connect("memory.db")   # creates or opens; ":memory:" works too
+with fgraph.connect("memory.db") as db:
+    initial = db.transact(
+        {
+            "id": "ada",
+            "person/name": "Ada Lovelace",
+            "person/city": "London",
+        },
+        source="wikipedia",
+        by="importer",
+        operation_id="person:ada:v1",
+    )
 
-db.transact({"id": "ada", "person/name": "Ada Lovelace", "person/city": "London"},
-            source="wikipedia", by="importer")
+    db.declare("person/knows", ref=True, many=True)
+    db.transact({"id": "grace", "person/name": "Grace Hopper"})
+    db.transact({"id": "ada", "person/knows": {"ref": "grace"}})
+    move = db.transact({"id": "ada", "person/city": "Lyon"})
 
-db.declare("person/knows", ref=True, many=True)     # only special behavior needs declaring
-db.transact({"id": "ada", "person/knows": {"ref": "grace"}})
-db.transact({"id": "ada", "person/city": "Lyon"})   # supersedes London; both moments kept
+    assert db.entity("ada")["person/city"] == "Lyon"
+    assert db.at(initial.tx).entity("ada")["person/city"] == "London"
+    print(db.history("ada", "person/city"))
+    print(db.why("ada", "person/city"))
+    print(db.receipt(move.tx))
 
-db.entity("ada")                          # {"person/name": "Ada Lovelace", "person/city": "Lyon", ...}
-db.q(find=["?friend"],
-     where=[["ada", "person/knows", "?f"], ["?f", "person/name", "?friend"]])
-
-db.history("ada", "person/city")          # London (tx…→tx…), Lyon (tx…→)
-db.at(tx).entity("ada")                   # the world as it was
-db.why("ada", "person/city")              # the fact plus its full provenance
-db.search("mathematician in Lyon", k=8, expand=1)   # keyword + graph expansion
+    result = db.q(
+        find=["?friend"],
+        where=[
+            ["ada", "person/knows", "?entity"],
+            ["?entity", "person/name", "?friend"],
+        ],
+    )
+    assert result.rows == [["Grace Hopper"]]
 ```
 
-## Quickstart (Go)
+`schema()` is the agent/tooling surface; it returns declared, effective, and observed behavior plus shapes and a digest. `attributes()` remains a compact human discovery API.
+
+For a known cardinality-one attribute, `['cas', entity, attribute, expected, desired]` performs an atomic comparison. The exact `{ "missing": true }` sentinel creates an absent fact when used as `expected`, or deletes a present fact when used as `desired`.
+
+## Go and TypeScript
+
+The Go module is `github.com/fmind/fgraph/go` and is CGO-free. The strict ESM package is `@fmind/fgraph` and targets the Node.js 24 LTS line (24.19+).
 
 ```bash
-go get github.com/fmind/fgraph/go
+go get github.com/fmind/fgraph/go@v1.0.0
+npm add @fmind/fgraph@^1.0.0
 ```
 
 ```go
-db, err := fgraph.Open("memory.db") // error handling elided for brevity
+db, err := fgraph.Open("memory.db")
+if err != nil {
+    log.Fatal(err)
+}
 defer db.Close()
 
-_, err = db.Transact(ctx, fgraph.E{"id": "ada", "person/name": "Ada Lovelace"},
-    fgraph.WithSource("wikipedia"))
+_, err = db.Transact(ctx,
+    fgraph.E{"id": "ada", "person/name": "Ada Lovelace"},
+    fgraph.WithOperationID("person:ada:v1"),
+)
 entity, err := db.Entity(ctx, "ada")
-fmt.Println(entity["person/name"])
 ```
 
-## CLI and MCP
+```typescript
+import { connect } from "@fmind/fgraph";
 
-Both implementations ship the same `fgraph` CLI (`uv tool install fgraph` or `go install github.com/fmind/fgraph/go/cmd/fgraph@latest`):
+using db = connect("memory.db");
+db.transact(
+  { id: "ada", "person/name": "Ada Lovelace" },
+  { operationId: "person:ada:v1" },
+);
+const rows = db.q({
+  find: ["?name"],
+  where: [["ada", "person/name", "?name"]],
+}).rows;
+```
+
+Run the checked-in examples with `mise run test:examples`.
+
+## CLI
+
+All three implementations expose the same v1 commands. The examples below use an installed `fgraph`; from the checkout, substitute `uv run --project python fgraph`, `go/bin/fgraph`, or `node typescript/dist/cli.js` after building.
 
 ```bash
-fgraph add --db notes.db '{"id": "fgraph", "project/status": "v0.1"}'
-fgraph why --db notes.db fgraph project/status
-fgraph mcp --db notes.db            # MCP server on stdio (add --read-only to expose without writes)
+fgraph --db project.db add \
+  --operation-id project-status-v1 \
+  '{"id":"project","project/status":"v1 candidate"}'
+
+# Bounded, resumable NDJSON loading. Completed batches survive interruption.
+fgraph --db project.db add \
+  --batch-size 500 \
+  --operation-id-prefix import-project-v1 \
+  - < entities.ndjson
+
+fgraph --db project.db schema project/
+fgraph --db project.db schema-export > project.schema.json
+fgraph --db project.db schema-check @project.schema.json
+fgraph --db project.db explain \
+  '{"find":["?status"],"where":[["project","project/status","?status"]]}'
+fgraph --db project.db datoms avet --components '["project/status"]'
+fgraph --db project.db tx 67
+
+# Portable logical replication.
+fgraph --db project.db tail --since 64 > events.ndjson
+fgraph --db replica.db apply events.ndjson
+
+# Exact retained-state recovery.
+fgraph --db project.db snapshot > snapshot.ndjson
+fgraph --db restored.db restore snapshot.ndjson
+
+fgraph --db project.db backup project-backup.db
+fgraph --db project-backup.db doctor --json
 ```
 
-Give any coding agent (Claude Code, Codex, OpenCode, Antigravity, Copilot, …) a durable, auditable memory or a project knowledge base:
+Irreversible excision requires an idempotency key and the basis you reviewed:
 
 ```bash
-claude mcp add fgraph --scope project -- fgraph mcp --db ./project.db
+basis="$(fgraph --db project.db schema --json | jq -r .basis_tx)"
+fgraph --db project.db excise private-subject \
+  --operation-id privacy-request-42 \
+  --if-basis-tx "$basis"
 ```
 
-MCP tools: `remember`, `recall`, `about`, `why`, `history`, `forget`, `undo`, `query`. See the docs for per-harness setup.
+## MCP for AI agents
+
+`fgraph mcp` opens the database read-only and exposes:
+
+`recall`, `about`, `why`, `history`, `query`, `datoms`, `receipt`, `schema`, and `explain`.
+
+Opting into `mcp --write` adds `remember`, `forget`, and `undo`. Writes require operation ids; destructive calls also require a current basis. Every successful tool response uses `{"ok":true,"basis_tx":...,"data":...}` and is capped at 256 KiB. MCP initialization tells agents to inspect schema, preserve read bases, paginate, and guard writes; tool discovery includes output schemas and read/destructive/idempotent/open-world annotations.
+
+```bash
+# Read-only project knowledge base.
+claude mcp add --scope project fgraph -- fgraph --db ./project.db mcp
+
+# Explicitly writable agent memory.
+claude mcp add --scope project fgraph-memory -- \
+  fgraph --db ./agent-memory.db mcp --write
+```
+
+An optional `--embed-cmd` reads text on stdin and emits one JSON vector on stdout. It is shell-free and bounded; core never downloads models or calls a provider.
+
+## Agent Skills
+
+Install the small companion skills to teach a coding agent the fgraph model and its safe MCP workflow:
+
+```bash
+npx skills add fmind/fgraph --skill fgraph --skill fgraph-mcp
+```
+
+Use `fgraph` for data modeling, transactions, temporal reads, and queries. Use `fgraph-mcp` when configuring or operating an agent memory or project knowledge base over MCP.
+
+## Benchmarks
+
+The checked-in benchmark exercises each native CLI independently at 1k, 10k, and 100k named entities. The 100k workload writes three scalar application facts per entity plus 5,000 caller-provided 384-dimensional vectors: 305,000 application facts in 500-entity transactions. Read figures are medians of three fresh-process end-to-end CLI runs, so runtime and package startup are included. The harness invokes the installed Python entry point, compiled Go binary, and compiled Node.js CLI directly.
+
+![Batched ingest throughput across Python, Go, and TypeScript](benchmarks/ingest-throughput.svg)
+
+![Fresh-process read latency at 100,000 entities](benchmarks/read-latency.svg)
+
+At 100,000 entities:
+
+| Runtime    | Ingest entities/s | Point get | Scalar filter | Connected join | Keyword search | Exact vector search |
+| ---------- | ----------------: | --------: | ------------: | -------------: | -------------: | ------------------: |
+| Python     |             3,209 |    256 ms |        289 ms |         316 ms |         812 ms |              791 ms |
+| Go         |             3,696 |    150 ms |        172 ms |         237 ms |         715 ms |              693 ms |
+| TypeScript |             3,579 |    283 ms |        231 ms |         307 ms |         731 ms |              710 ms |
+
+| Runtime    | Snapshot | Restore | Event tail | Event apply |
+| ---------- | -------: | ------: | ---------: | ----------: |
+| Python     |   7.61 s | 28.43 s |     4.19 s |     48.57 s |
+| Go         |   7.43 s | 22.80 s |     4.18 s |     30.17 s |
+| TypeScript |  13.27 s | 21.50 s |     3.87 s |     22.10 s |
+
+The common logical state occupied 92.02 MiB; its snapshot was 60.53 MiB and its event stream 22.52 MiB. Vector search is intentionally exact over the 5,000 vectors, not ANN. These measurements validate the tested 100k envelope, not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and hardware affect the numbers.
+
+This review run was generated on 2026-08-26 from source digest `sha256:ac2d990434961b2901af19d47c31770f1f749fc5f2127590871c25d25ddc4621`. Its provenance deliberately records `source_tree: "dirty"` because the v1 candidate has not been committed. The release gate requires the same workload to be rerun from the authorized clean source commit; do not treat this review run as published release evidence.
+
+Reproduce the complete run with `mise run benchmark`. The harness has no timing pass/fail threshold and writes the [raw NDJSON observations](benchmarks/latest.ndjson) plus both accessible SVG charts.
+
+## Data deletion and trust boundary
+
+`nohistory` removes superseded fact rows but does **not** erase their canonical event payloads. For privacy deletion, `excise` removes all facts where a target is entity, attribute, or ref value and redacts every retained event that mentions it. The identity registry name remains, so use opaque names and keep sensitive identifiers in facts.
+
+Snapshots/backups and external collectors are separate copies with their own retention policy. Event hashes detect corruption but are not tamper evidence: a writer that controls the file can rewrite it. Put file permissions, encryption, snapshots, and audit collection outside an untrusted agent's control.
 
 ## When not to use fgraph
 
-Billion-edge analytics (use DuckDB or a server graph database), high-concurrency multi-writer services (fgraph is single-writer, many readers), or blob storage (values are capped at 1 MiB). fgraph is comfortable in the millions-of-facts range — honest numbers ship with the benchmarks.
+Use another system for high-concurrency distributed writers, tamper-evident logs, large blobs, approximate vector retrieval at scale, or billion-edge analytics. fgraph is one durable SQLite writer with many readers and exact linear vector search. Run `mise run benchmark` on your corpus and hardware.
 
-## Project layout
+## Repository
 
-- [`SPEC.md`](SPEC.md) — the normative specification (format, semantics, query language, conformance).
-- [`python/`](python/) and [`go/`](go/) — the twin implementations.
-- [`conformance/`](conformance/) — the shared test suite both implementations must pass.
-- [`examples/`](examples/) — runnable Python and Go examples (they double as acceptance tests).
-- [`docs/`](docs/) — documentation site (Hugo + Hextra), deployed to GitHub Pages.
+- [`docs/content/docs/spec.md`](docs/content/docs/spec.md) — normative fgraph v1 / SQLite format-v2 contract.
+- [`python/`](python/), [`go/`](go/), [`typescript/`](typescript/) — native peers.
+- [`conformance/`](conformance/) — shared behavior, differential scenario, and immutable format-v2 fixture.
+- [`examples/`](examples/) — runnable acceptance examples.
+- [`docs/`](docs/) — Hugo documentation site.
+- [`skills/`](skills/) — installable Agent Skills for fgraph users.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — the cross-runtime contribution contract.
+- [`SECURITY.md`](SECURITY.md) — private reporting and the supported trust boundary.
+- [`CHANGELOG.md`](CHANGELOG.md) — candidate and released user-visible changes.
+- [`RELEASING.md`](RELEASING.md) — exact proof, publication, and rollback procedure.
+
+The source gate is `mise run all`. No commit, package publication, or hosted deployment is implied by a local green candidate.
 
 ## License
 

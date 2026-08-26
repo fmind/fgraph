@@ -1,0 +1,14 @@
+{
+  "name": "schema/historical-view",
+  "comment": "Historical pulls interpret facts with the schema visible at that transaction, not a later declaration.",
+  "steps": [
+    { "tx": { "id": "item", "item/tag": "a" }, "expect": { "tx": 67, "...": true } },
+    { "declare": { "attr": "item/tag", "many": true }, "expect": { "tx": 68, "...": true } },
+    { "tx": { "id": "item", "item/tag": "b" }, "expect": { "tx": 69, "...": true } },
+    { "entity": "item", "expect": { "item/tag": ["a", "b"] } },
+    {
+      "at": 67,
+      "steps": [{ "entity": "item", "expect": { "item/tag": "a" } }]
+    }
+  ]
+}

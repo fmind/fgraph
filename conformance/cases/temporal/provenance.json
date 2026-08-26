@@ -1,0 +1,34 @@
+{
+  "name": "temporal/provenance",
+  "comment": "why returns the full transaction entity while history exposes arithmetic microsecond provenance fields.",
+  "steps": [
+    {
+      "tx": { "id": "note", "note/text": "A sourced fact" },
+      "expect": { "tx": 67, "...": true }
+    },
+    {
+      "why": ["note", "note/text"],
+      "expect": [
+        {
+          "id": 41,
+          "e": "note",
+          "a": "note/text",
+          "v": "A sourced fact",
+          "tx": 67,
+          "rx": null,
+          "provenance": { "fgraph/at": { "instant": "2026-01-01T00:00:01.000000Z" } }
+        }
+      ]
+    },
+    {
+      "history": ["note", "note/text"],
+      "expect": [
+        { "id": 41, "e": "note", "a": "note/text", "v": "A sourced fact", "tx": 67, "rx": null, "at": 1767225601000000 }
+      ]
+    },
+    {
+      "at": "2026-01-01T00:00:01Z",
+      "steps": [{ "entity": "note", "expect": { "note/text": "A sourced fact" } }]
+    }
+  ]
+}

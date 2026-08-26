@@ -4,10 +4,11 @@
 # python implementation
 *.py[co]
 __pycache__/
+.coverage
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
 python/.cache/
-python/.coverage
-python/.pytest_cache/
-python/.ruff_cache/
 python/.ty_cache/
 python/.venv/
 python/dist/
@@ -16,6 +17,14 @@ python/htmlcov/
 # go implementation
 go/bin/
 go/coverage.out
+go/fgraph
+go/go.test
+
+# typescript implementation
+typescript/coverage/
+typescript/coverage-*/
+typescript/dist/
+typescript/node_modules/
 
 # docs site (hugo)
 docs/.hugo_build.lock
@@ -27,4 +36,5 @@ docs/tmp/
 *.db
 *.db-shm
 *.db-wal
+!conformance/fixtures/format-v2.db
 tmp/

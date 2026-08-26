@@ -1,0 +1,77 @@
+{
+  "name": "undo uses its stable high-level request for idempotent retries",
+  "steps": [
+    {
+      "tx": { "id": "undo/item", "undo/value": "present" },
+      "expect": { "status": "applied", "basis_tx": 64, "tx": 67, "...": true }
+    },
+    {
+      "undo": {
+        "target": 67,
+        "operation_id": "undo:item",
+        "if_basis_tx": 67
+      },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 67,
+        "tx": 68,
+        "at": 1767225602000000,
+        "...": true
+      }
+    },
+    {
+      "receipt": 68,
+      "expect": {
+        "basis_tx": 67,
+        "read_basis_tx": 68,
+        "tx": 68,
+        "operation_id": "undo:item",
+        "request_hash": "sha256:c90132f5c04417b8723a85b07fc2254f2e2727cb8a0ebb47f58f0159a4e3c02d",
+        "...": true
+      }
+    },
+    {
+      "undo": {
+        "target": 67,
+        "operation_id": "undo:item",
+        "if_basis_tx": 67
+      },
+      "expect": {
+        "status": "already_applied",
+        "basis_tx": 67,
+        "tx": 68,
+        "at": 1767225602000000,
+        "ids": {},
+        "asserted": [],
+        "retracted": [],
+        "...": true
+      }
+    },
+    {
+      "tx": [],
+      "options": { "by": "metadata-only" },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 68,
+        "tx": 69,
+        "...": true
+      }
+    },
+    {
+      "undo": { "target": 69 },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 69,
+        "tx": 70,
+        "...": true
+      }
+    },
+    {
+      "entity": 70,
+      "expect": {
+        "fgraph/undoes": { "ref": 69 },
+        "...": true
+      }
+    }
+  ]
+}

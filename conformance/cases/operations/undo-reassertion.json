@@ -1,0 +1,31 @@
+{
+  "name": "undo preserves a later independent reassertion",
+  "steps": [
+    {
+      "tx": { "id": "undo/reassertion", "undo/value": "kept" },
+      "expect": { "status": "applied", "basis_tx": 64, "tx": 67, "...": true }
+    },
+    {
+      "tx": [["retract", "undo/reassertion", "undo/value", "kept"]],
+      "expect": { "status": "applied", "basis_tx": 67, "tx": 68, "...": true }
+    },
+    {
+      "tx": { "id": "undo/reassertion", "undo/value": "kept" },
+      "expect": { "status": "applied", "basis_tx": 68, "tx": 69, "...": true }
+    },
+    {
+      "undo": { "target": 67 },
+      "expect": {
+        "status": "applied",
+        "basis_tx": 69,
+        "tx": 70,
+        "retracted": [],
+        "...": true
+      }
+    },
+    {
+      "entity": "undo/reassertion",
+      "expect": { "undo/value": "kept" }
+    }
+  ]
+}

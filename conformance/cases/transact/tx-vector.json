@@ -1,0 +1,35 @@
+{
+  "name": "transact/tx-vector",
+  "comment": "A custom vector transaction fact participates in normal planning, so inferred dimensions are inserted immediately before the vector while the tx id remains last.",
+  "steps": [
+    {
+      "tx": {},
+      "options": {
+        "tx": { "audit/vector": { "vector": [1.0, 2.0] } }
+      },
+      "expect": {
+        "tx": 66,
+        "asserted": [
+          { "a": "fgraph/at", "e": 66, "...": true },
+          { "a": "fgraph/type", "e": "audit/vector", "v": "vector", "...": true },
+          { "a": "fgraph/dims", "e": "audit/vector", "v": 2, "...": true },
+          {
+            "a": "audit/vector",
+            "e": 66,
+            "v": { "vector": [1.0, 2.0] },
+            "...": true
+          }
+        ],
+        "...": true
+      }
+    },
+    {
+      "entity": 66,
+      "expect": {
+        "audit/vector": { "vector": [1.0, 2.0] },
+        "fgraph/at": { "instant": "2026-01-01T00:00:01.000000Z" }
+      }
+    },
+    { "entity": "audit/vector", "expect": { "fgraph/type": "vector", "fgraph/dims": 2 } }
+  ]
+}

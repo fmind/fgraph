@@ -1,0 +1,91 @@
+{
+  "name": "search/hybrid-expand",
+  "comment": "Keyword and semantic candidates fuse at entity level, filters apply before the limit, and bidirectional reference expansion reports neighbors.",
+  "steps": [
+    { "declare": { "attr": "note/embedding", "type": "vector", "dims": 2 } },
+    { "declare": { "attr": "note/related", "ref": true, "many": true } },
+    {
+      "tx": {
+        "id": "note-a",
+        "note/embedding": { "vector": [1.0, 0.0] },
+        "note/kind": "guide",
+        "note/related": { "ref": "note-b" },
+        "note/text": "small composable tools"
+      }
+    },
+    {
+      "tx": {
+        "id": "note-b",
+        "note/embedding": { "vector": [0.0, 1.0] },
+        "note/kind": "reference",
+        "note/text": "large integrated framework"
+      }
+    },
+    {
+      "search": {
+        "text": "composable tools",
+        "vector": [1.0, 0.0],
+        "k": 1,
+        "expand": 1,
+        "filters": [["note/kind", "guide"]],
+        "vector_attribute": "note/embedding"
+      },
+      "expect": {
+        "basis_tx": 74,
+        "hits": [{ "entity": "note-a", "...": true }],
+        "expanded": [{ "entity": "note-b", "...": true }],
+        "truncated": false,
+        "work_used": 5
+      }
+    },
+    {
+      "tx": {
+        "id": "note-zero",
+        "note/embedding": { "vector": [0.0, 0.0] },
+        "note/text": "zero candidate"
+      }
+    },
+    {
+      "search": {
+        "vector": [1.0, 0.0],
+        "k": 3,
+        "vector_attribute": "note/embedding"
+      },
+      "expect": {
+        "hits": [
+          { "entity": "note-a", "...": true },
+          { "entity": "note-b", "...": true }
+        ],
+        "expanded": [],
+        "...": true
+      }
+    },
+    {
+      "tx": {
+        "id": "undeclared-vector",
+        "raw/embedding": { "vector": [0.6, 0.8] }
+      }
+    },
+    {
+      "search": {
+        "vector": [0.6, 0.8],
+        "k": 1,
+        "vector_attribute": "raw/embedding"
+      },
+      "expect": {
+        "hits": [{ "entity": "undeclared-vector", "...": true }],
+        "expanded": [],
+        "...": true
+      }
+    },
+    {
+      "at": 73,
+      "steps": [
+        {
+          "search": { "text": "tools" },
+          "error": "Unsupported"
+        }
+      ]
+    }
+  ]
+}

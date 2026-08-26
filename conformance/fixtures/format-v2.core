@@ -1,0 +1,137 @@
+meta|created_at|integer|1767225600000000
+meta|next_id|integer|96
+id|1|'fgraph/at'||64
+id|2|'fgraph/by'||64
+id|3|'fgraph/source'||64
+id|4|'fgraph/meta'||64
+id|5|'fgraph/many'||64
+id|6|'fgraph/unique'||64
+id|7|'fgraph/nohistory'||64
+id|8|'fgraph/type'||64
+id|9|'fgraph/dims'||64
+id|10|'fgraph/doc'||64
+id|11|'fgraph/excised'||64
+id|12|'fgraph/undoes'||64
+id|13|'fgraph/imported-at'||64
+id|14|'fgraph/vector-model'||64
+id|15|'fgraph/shape'||64
+id|16|'fgraph/shape-required'||64
+id|17|'fgraph/shape-allowed'||64
+id|18|'fgraph/shape-closed'||64
+id|64|NULL|00000000000040008000000000000040|64
+id|65|'ada'||68
+id|66|'person/born'||68
+id|67|'person/name'||68
+id|68|NULL|8C5BD8824CB049019AF64027C1A588FB|68
+id|69|'grace'||70
+id|70|NULL|D715127FA30B4C68A77932142F4623EC|70
+id|71|'domain-event'||72
+id|72|NULL|789812BADFC14FA7BD958764A977A739|72
+id|73|'person/knows'||74
+id|74|NULL|3C9647DAB9EC44608CEE6E924CEB2449|74
+id|75|NULL|0133161624D3400E9BD373E71027A0E3|75
+id|76|NULL|B54F633207E84C6F9B00CCCC88F2B9AC|76
+id|77|'value-case'||84
+id|78|'data/bytes'||84
+id|79|'data/float'||84
+id|80|'data/instant'||84
+id|81|'data/json'||84
+id|82|'data/text'||84
+id|83|'data/vector'||84
+id|84|NULL|7F0B585BFBB6487CADA5D728CC3335F9|84
+id|85|NULL|4FDAE4712E6457B7BC98BCC828AA539C|89
+id|86|'node/value'||89
+id|87|'holder'||89
+id|88|'node/link'||89
+id|89|NULL|B2D58E48FB5C409DAE373F74D80193B9|89
+id|90|'user/email'||91
+id|91|NULL|2F2364424FE44AF597DEB957A53D5839|91
+id|92|'owner-a'||93
+id|93|NULL|777B550EFE7C45F8BD78DC199CAB9E15|93
+id|94|'owner-b'||95
+id|95|NULL|C4901E458DB44D84AD5C7E39D78A46AE|95
+event|64|1613E2E6BA98AD4CDBB185FC193D02DD2C472737D811ABADF0350D1D5F888191|'{"asserted":[],"at":1767225600000000,"created":["fgraph/at","fgraph/by","fgraph/source","fgraph/meta","fgraph/many","fgraph/unique","fgraph/nohistory","fgraph/type","fgraph/dims","fgraph/doc","fgraph/excised","fgraph/undoes","fgraph/imported-at","fgraph/vector-model","fgraph/shape","fgraph/shape-required","fgraph/shape-allowed","fgraph/shape-closed"],"event":"00000000-0000-4000-8000-000000000040","fgraph":"event/1","retracted":[]}'|NULL|
+event|68|EAD8D87AC49BDC7506231CBECFDF5BD4B3F3D5B15F2476976AAD60DF5E1DF28E|'{"asserted":[["ada","person/born",1815,"int"],["ada","person/name","Ada Lovelace","text"]],"at":1767225601000000,"created":["ada","person/born","person/name"],"event":"8c5bd882-4cb0-4901-9af6-4027c1a588fb","fgraph":"event/1","retracted":[]}'|NULL|
+event|70|4C050A4A7315FD50AF1D6CF9D40D3DD3C1E1EFD3B28958F8F0B8D8B3356CAF5E|'{"asserted":[["grace","person/name","Grace Hopper","text"]],"at":1767225602000000,"created":["grace"],"event":"d715127f-a30b-4c68-a779-32142f4623ec","fgraph":"event/1","retracted":[]}'|NULL|
+event|72|FD16A6C31A9E93D10F52EAD68B3CD67636C7BE16EBEA53962AEA7D33DA4DC88E|'{"asserted":[["domain-event","fgraph/at",{"instant":"2026-02-01T00:00:00.000000Z"},"instant"]],"at":1767225603000000,"created":["domain-event"],"event":"789812ba-dfc1-4fa7-bd95-8764a977a739","fgraph":"event/1","retracted":[]}'|NULL|
+event|74|7EE4C09B652D3AB7DC8A909EDF132AD26AD4ED3F6B2E76DD7C25CDE48ECA94E6|'{"asserted":[["ada","person/knows",{"ref":"grace"},"ref"]],"at":1767225604000000,"created":["person/knows"],"event":"3c9647da-b9ec-4460-8cee-6e924ceb2449","fgraph":"event/1","retracted":[]}'|NULL|
+event|75|5312506A2AFBB10AF14E816359618A140E0E8D803AB2637356FAF83D60117B32|'{"asserted":[["ada","person/born",1816,"int"]],"at":1767225605000000,"created":[],"event":"01331616-24d3-400e-9bd3-73e71027a0e3","fgraph":"event/1","retracted":[["ada","person/born",1815,"int"]]}'|NULL|
+event|76|AFDBF896EB25EB85178991DF6A75CF95EB165DB20E8CE026044C86E782423C12|'{"asserted":[],"at":1767225606000000,"created":[],"event":"b54f6332-07e8-4c6f-9b00-cccc88f2b9ac","fgraph":"event/1","retracted":[["grace","person/name","Grace Hopper","text"]]}'|NULL|
+event|84|D28909C2ABF98803D3CC0E3842C9688D3DF65617EB86ED92A26A3AE8C197D068|'{"asserted":[["value-case","data/bytes",{"bytes":"AAEC"},"bytes"],["value-case","data/float",1e+20,"float"],["value-case","data/instant",{"instant":"2026-08-24T10:00:00.000000Z"},"instant"],["value-case","data/json",{"json":{"a":0,"n":1e-7,"z":1}},"json"],["value-case","data/text","xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","text"],["data/vector","fgraph/type","vector","text"],["data/vector","fgraph/dims",2,"int"],["value-case","data/vector",{"vector":[0.10000000149011612,-0.20000000298023224]},"vector"]],"at":1767225607000000,"created":["value-case","data/bytes","data/float","data/instant","data/json","data/text","data/vector"],"event":"7f0b585b-fbb6-487c-ada5-d728cc3335f9","fgraph":"event/1","retracted":[]}'|NULL|
+event|89|7B49FD3880A6B39E6012A09AD115EE022F85C0FCFF55F256222BE830BE4CFCF1|'{"asserted":[[{"eid":"4fdae471-2e64-57b7-bc98-bcc828aa539c"},"node/value","temporary","text"],["holder","node/link",{"ref":{"eid":"4fdae471-2e64-57b7-bc98-bcc828aa539c"}},"ref"]],"at":1767225608000000,"created":[{"eid":"4fdae471-2e64-57b7-bc98-bcc828aa539c"},"node/value","holder","node/link"],"event":"b2d58e48-fb5c-409d-ae37-3f74d80193b9","fgraph":"event/1","retracted":[]}'|NULL|
+event|91|0567EC840A8E6C95EAF7D94E831C336E36DA444D7EDBE9C3DF173E90CCBA423E|'{"asserted":[["user/email","fgraph/type","text","text"],["user/email","fgraph/unique",true,"bool"]],"at":1767225609000000,"created":["user/email"],"event":"2f236442-4fe4-4af5-97de-b957a53d5839","fgraph":"event/1","retracted":[]}'|NULL|
+event|93|07A813C2012C3F377F1FA33D3B17F817B4C17A50176896D67626EB3A1272775F|'{"asserted":[["owner-a","user/email","move@example.test","text"]],"at":1767225610000000,"created":["owner-a"],"event":"777b550e-fe7c-45f8-bd78-dc199cab9e15","fgraph":"event/1","retracted":[]}'|NULL|
+event|95|56B93794087D38D04649DFD204EF2B925DCF25D7E0D7012B42C9EB9B24CE2C9A|'{"asserted":[["owner-b","user/email","move@example.test","text"]],"at":1767225611000000,"created":["owner-b"],"event":"c4901e45-8db4-4d84-ad5c-7e39d78a46ae","fgraph":"event/1","retracted":[["owner-a","user/email","move@example.test","text"]]}'|NULL|
+fact|1|64|1|integer|1767225600000000|5|64|NULL
+fact|2|1|8|text|'instant'|4|64|NULL
+fact|3|2|8|text|'text'|4|64|NULL
+fact|4|3|8|text|'text'|4|64|NULL
+fact|5|4|8|text|'json'|4|64|NULL
+fact|6|5|8|text|'bool'|4|64|NULL
+fact|7|6|8|text|'bool'|4|64|NULL
+fact|8|7|8|text|'bool'|4|64|NULL
+fact|9|8|8|text|'text'|4|64|NULL
+fact|10|9|8|text|'int'|4|64|NULL
+fact|11|10|8|text|'text'|4|64|NULL
+fact|12|11|8|text|'ref'|4|64|NULL
+fact|13|12|8|text|'ref'|4|64|NULL
+fact|14|13|8|text|'instant'|4|64|NULL
+fact|15|14|8|text|'text'|4|64|NULL
+fact|16|15|8|text|'ref'|4|64|NULL
+fact|17|16|8|text|'ref'|4|64|NULL
+fact|18|17|8|text|'ref'|4|64|NULL
+fact|19|18|8|text|'bool'|4|64|NULL
+fact|20|1|10|text|'Wall-clock time of the transaction (UTC microseconds).'|4|64|NULL
+fact|21|2|10|text|'Author of the transaction (person or agent).'|4|64|NULL
+fact|22|3|10|text|'Provenance of the transaction (document, conversation, tool).'|4|64|NULL
+fact|23|4|10|text|'Free-form JSON metadata on the transaction.'|4|64|NULL
+fact|24|5|10|text|'Schema: attribute holds multiple values per entity.'|4|64|NULL
+fact|25|6|10|text|'Schema: live values of this attribute are unique; enables upsert.'|4|64|NULL
+fact|26|7|10|text|'Schema: superseded values are deleted instead of kept as history.'|4|64|NULL
+fact|27|8|10|text|'Schema: enforced value type (bool,int,float,text,instant,bytes,vector,json,ref).'|4|64|NULL
+fact|28|9|10|text|'Schema: vector dimensions for vector attributes.'|4|64|NULL
+fact|29|10|10|text|'Schema: human/agent documentation for an attribute.'|4|64|NULL
+fact|30|11|10|text|'Audit marker: entity was physically excised at this transaction.'|4|64|NULL
+fact|31|12|10|text|'Audit marker: this transaction undoes another transaction.'|4|64|NULL
+fact|32|13|10|text|'Original source timestamp retained when an import rebases transaction time.'|4|64|NULL
+fact|33|14|10|text|'Schema: opaque identity of the embedding model used by a vector attribute.'|4|64|NULL
+fact|34|15|10|text|'Validation: shape assigned to an entity.'|4|64|NULL
+fact|35|16|10|text|'Validation: attribute required by a shape.'|4|64|NULL
+fact|36|17|10|text|'Validation: attribute allowed by a closed shape.'|4|64|NULL
+fact|37|18|10|text|'Validation: reject application attributes not allowed by the shape.'|4|64|NULL
+fact|38|16|5|integer|1|1|64|NULL
+fact|39|17|5|integer|1|1|64|NULL
+fact|40|68|1|integer|1767225601000000|5|68|NULL
+fact|41|65|66|integer|1815|2|68|75
+fact|42|65|67|text|'Ada Lovelace'|4|68|NULL
+fact|43|70|1|integer|1767225602000000|5|70|NULL
+fact|44|69|67|text|'Grace Hopper'|4|70|76
+fact|45|72|1|integer|1767225603000000|5|72|NULL
+fact|46|71|1|integer|1769904000000000|5|72|NULL
+fact|47|74|1|integer|1767225604000000|5|74|NULL
+fact|48|65|73|integer|69|0|74|NULL
+fact|49|75|1|integer|1767225605000000|5|75|NULL
+fact|50|65|66|integer|1816|2|75|NULL
+fact|51|76|1|integer|1767225606000000|5|76|NULL
+fact|52|84|1|integer|1767225607000000|5|84|NULL
+fact|53|77|78|blob|X'000102'|6|84|NULL
+fact|54|77|79|real|1.0e+20|3|84|NULL
+fact|55|77|80|integer|1787565600000000|5|84|NULL
+fact|56|77|81|text|'{"a":0,"n":1e-7,"z":1}'|10|84|NULL
+fact|57|77|82|blob|X'ACD8119901E076AC8E31F2229D0422F64E69224B0C85AB0BD37A9D04EADEAF63'|8|84|NULL
+fact|58|83|8|text|'vector'|4|84|NULL
+fact|59|83|9|integer|2|2|84|NULL
+fact|60|77|83|blob|X'1CA8C9BC9829B8DF7A09A732F2D6C789C2933C2B8CA873C93985EF98B06706AB'|7|84|NULL
+fact|61|89|1|integer|1767225608000000|5|89|NULL
+fact|62|85|86|text|'temporary'|4|89|NULL
+fact|63|87|88|integer|85|0|89|NULL
+fact|64|91|1|integer|1767225609000000|5|91|NULL
+fact|65|90|8|text|'text'|4|91|NULL
+fact|66|90|6|integer|1|1|91|NULL
+fact|67|93|1|integer|1767225610000000|5|93|NULL
+fact|68|92|90|text|'move@example.test'|4|93|95
+fact|69|95|1|integer|1767225611000000|5|95|NULL
+fact|70|94|90|text|'move@example.test'|4|95|NULL
+blob|1CA8C9BC9829B8DF7A09A732F2D6C789C2933C2B8CA873C93985EF98B06706AB|blob|X'CDCCCC3DCDCC4CBE'
+blob|ACD8119901E076AC8E31F2229D0422F64E69224B0C85AB0BD37A9D04EADEAF63|text|'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+sequence|fgraph_facts|70

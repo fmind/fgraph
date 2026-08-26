@@ -1,0 +1,110 @@
+{
+  "name": "schema/same-transaction",
+  "comment": "Schema facts affect every later item in their transaction: type, cardinality, uniqueness, refs, and vector dimensions share one pending view.",
+  "steps": [
+    {
+      "tx": [
+        { "id": "tag/value", "fgraph/many": true, "fgraph/type": "text" },
+        { "id": "tagged", "tag/value": ["a", "b"] }
+      ]
+    },
+    { "entity": "tagged", "expect": { "tag/value": ["a", "b"] } },
+    {
+      "tx": [
+        { "id": "user/email", "fgraph/type": "text", "fgraph/unique": true },
+        { "id": "ada", "user/email": "ada@example.test" },
+        { "person/name": "Ada", "user/email": "ada@example.test" }
+      ]
+    },
+    {
+      "entity": "ada",
+      "expect": { "person/name": "Ada", "user/email": "ada@example.test" }
+    },
+    {
+      "tx": [
+        { "id": "person/mentor", "fgraph/type": "ref" },
+        {
+          "id": "learner",
+          "person/mentor": { "id": "mentor", "person/name": "Grace" }
+        }
+      ]
+    },
+    { "entity": "learner", "expect": { "person/mentor": { "ref": "mentor" } } },
+    { "entity": "mentor", "expect": { "person/name": "Grace" } },
+    {
+      "tx": [
+        { "id": "note/embedding", "fgraph/dims": 2, "fgraph/type": "vector" },
+        { "id": "note", "note/embedding": { "vector": [1.0, 0.0] } }
+      ]
+    },
+    {
+      "entity": "note",
+      "expect": { "note/embedding": { "vector": [1.0, 0.0] } }
+    },
+    {
+      "tx": [
+        { "id": "code/value", "fgraph/type": "text", "fgraph/unique": true },
+        { "id": "first-code", "code/value": "same" },
+        { "id": "second-code", "code/value": "same" }
+      ],
+      "error": "Conflict"
+    },
+    { "entity": "first-code", "error": "NotFound" },
+    { "entity": "second-code", "error": "NotFound" },
+    {
+      "tx": [
+        { "id": "late-type-owner", "late-type/value": "wrong" },
+        { "id": "late-type/value", "fgraph/type": "int" }
+      ],
+      "error": "SchemaError"
+    },
+    {
+      "tx": [
+        { "id": "late-unique-one", "late-unique/value": 1 },
+        { "id": "late-unique-two", "late-unique/value": 1 },
+        {
+          "id": "late-unique/value",
+          "fgraph/type": "int",
+          "fgraph/unique": true
+        }
+      ],
+      "error": "Conflict"
+    },
+    { "declare": { "attr": "late-many/value", "type": "int", "many": true } },
+    {
+      "tx": [
+        ["assert", "late-many-owner", "late-many/value", 1],
+        ["assert", "late-many-owner", "late-many/value", 2],
+        { "id": "late-many/value", "fgraph/many": false }
+      ],
+      "error": "Conflict"
+    },
+    { "declare": { "attr": "schema-retract/value", "type": "int" } },
+    {
+      "tx": [
+        ["retract", "schema-retract/value", "fgraph/type", "int"],
+        ["assert", "schema-retract-owner", "schema-retract/value", "now untyped"]
+      ]
+    },
+    {
+      "entity": "schema-retract-owner",
+      "expect": { "schema-retract/value": "now untyped" }
+    },
+    {
+      "tx": [
+        {
+          "id": "schema-many/value",
+          "fgraph/type": "text",
+          "fgraph/many": true
+        },
+        { "id": "schema-many-owner", "schema-many/value": ["a", "b"] }
+      ]
+    },
+    {
+      "tx": [
+        ["retract", "schema-many/value", "fgraph/many", true]
+      ],
+      "error": "SchemaError"
+    }
+  ]
+}

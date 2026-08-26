@@ -1,6 +1,6 @@
 {
   "name": "format/genesis",
-  "comment": "A freshly initialized database contains exactly the 25 genesis facts (SPEC §4.5): the bootstrap is self-describing and queryable through the normal API, and no user rows exist.",
+  "comment": "A freshly initialized format-v2 database contains exactly the 39 genesis facts: the bootstrap is self-describing and queryable through the normal API, and no user rows exist.",
   "steps": [
     {
       "q": { "find": ["?d"], "where": [["fgraph/at", "fgraph/doc", "?d"]] },
@@ -9,6 +9,10 @@
     {
       "q": { "find": ["?t"], "where": [["fgraph/excised", "fgraph/type", "?t"]] },
       "expect": { "columns": ["?t"], "rows": [["ref"]] }
+    },
+    {
+      "q": { "find": ["?t"], "where": [["fgraph/imported-at", "fgraph/type", "?t"]] },
+      "expect": { "columns": ["?t"], "rows": [["instant"]] }
     },
     { "facts": true, "expect": [] }
   ]

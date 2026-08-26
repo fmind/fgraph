@@ -1,0 +1,166 @@
+name: Release
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install tools using mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.8.14
+          cache: false
+      - name: Install locked dependencies
+        run: mise run install:dependencies
+      - name: Verify source, version, and module tags
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(uv run --project python python -c \
+            'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')"
+          test "$RELEASE_TAG" = "v$version"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_SHA"
+          test "$(git rev-list -n 1 "go/$RELEASE_TAG")" = "$RELEASE_SHA"
+          mise run release:verify
+      - name: Build release archives
+        run: |
+          mkdir release
+          cp python/dist/*.whl python/dist/*.tar.gz release/
+          npm pack ./typescript --pack-destination release
+
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          source_date_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            goos="${target%-*}"
+            goarch="${target#*-}"
+            suffix=""
+            if [[ "$goos" == "windows" ]]; then suffix=".exe"; fi
+
+            target_stage="$stage/$target"
+            mkdir "$target_stage"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -C go -trimpath -ldflags="-s -w" \
+              -o "$target_stage/fgraph${suffix}" ./cmd/fgraph
+            cp LICENSE "$target_stage/LICENSE"
+            cp go/README.md "$target_stage/README.md"
+            touch -d "@$source_date_epoch" "$target_stage"/*
+
+            if [[ "$goos" == "windows" ]]; then
+              uv run --locked --script scripts/deterministic_zip.py "$target_stage" \
+                --output "release/fgraph-${target}.zip" \
+                --source-date-epoch "$source_date_epoch"
+            else
+              tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner \
+                -C "$target_stage" -cf - . | gzip -n >"release/fgraph-${target}.tar.gz"
+            fi
+          done
+          (cd release && sha256sum -- * >SHA256SUMS)
+      - name: Upload exact release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fgraph-${{ github.sha }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke:
+    name: Smoke ${{ matrix.target }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            os: ubuntu-24.04
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+          - target: darwin-amd64
+            os: macos-15-intel
+          - target: darwin-arm64
+            os: macos-15
+          - target: windows-amd64
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          check-latest: false
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fgraph-${{ github.sha }}
+          path: release
+      - name: Verify and execute archive
+        run: >-
+          python scripts/smoke_release_archive.py release
+          --target ${{ matrix.target }}
+          --version-file python/pyproject.toml
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install Node.js for npm publication
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.20.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fgraph-${{ github.sha }}
+          path: release
+      - name: Verify checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Create draft GitHub release
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/*
+          --verify-tag --draft --generate-notes --title "$GITHUB_REF_NAME"
+      - name: Publish npm package
+        env:
+          # The first scoped-package publication needs a short-lived read-write
+          # granular token with Bypass 2FA enabled.
+          # Later releases use npm trusted publishing and leave this secret unset.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish release/fmind-fgraph-*.tgz --access public --provenance
+      - name: Stage Python distributions
+        run: |
+          mkdir python-dist
+          cp release/*.whl release/fgraph-[0-9]*.tar.gz python-dist/
+      - name: Publish Python package
+        uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26 # v1.14.2
+        with:
+          packages-dir: python-dist
+      - name: Publish GitHub release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
