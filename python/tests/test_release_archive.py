@@ -31,7 +31,7 @@ def _script_module(name: str) -> ModuleType:
 def test_release_workflow_publishes_local_npm_tarball() -> None:
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 
-    assert "npm publish ./release/fmind-fgraph-*.tgz --access public --provenance" in workflow.read_text(
+    assert "npm publish ./release/fmind-dev-fgraph-*.tgz --access public --provenance" in workflow.read_text(
         encoding="utf-8"
     )
 

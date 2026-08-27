@@ -1,5 +1,5 @@
 {
-  "name": "@fmind/fgraph",
+  "name": "@fmind-dev/fgraph",
   "version": "1.0.1",
   "description": "Embedded temporal fact store in a single SQLite file",
   "author": "Médéric Hurier",

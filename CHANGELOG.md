@@ -9,6 +9,7 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 ### Fixed
 
 - Publish the local npm release artifact as a filesystem path so npm does not parse it as a Git repository.
+- Use the npm namespace owned by the release account for the first TypeScript package publication.
 
 ## [1.0.0] - 2026-08-26
 

@@ -11,7 +11,7 @@ Use fgraph as an embedded temporal fact store in one SQLite file. Prefer its sma
 ## Start safely
 
 1. Confirm that a supported fgraph 1.x CLI or library is installed. Run `fgraph version` when a CLI is available.
-1. Choose one native runtime: Python package `fgraph`, Go module `github.com/fmind/fgraph/go`, or npm package `@fmind/fgraph`.
+1. Choose one native runtime: Python package `fgraph`, Go module `github.com/fmind/fgraph/go`, or npm package `@fmind-dev/fgraph`.
 1. Keep the database file dedicated to fgraph. Use `:memory:` for tests.
 1. Read existing schema before changing a non-empty database: `fgraph --db <file> schema --json`.
 

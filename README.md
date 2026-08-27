@@ -68,11 +68,11 @@ For a known cardinality-one attribute, `['cas', entity, attribute, expected, des
 
 ## Go and TypeScript
 
-The Go module is `github.com/fmind/fgraph/go` and is CGO-free. The strict ESM package is `@fmind/fgraph` and targets the Node.js 24 LTS line (24.19+).
+The Go module is `github.com/fmind/fgraph/go` and is CGO-free. The strict ESM package is `@fmind-dev/fgraph` and targets the Node.js 24 LTS line (24.19+).
 
 ```bash
 go get github.com/fmind/fgraph/go@v1.0.1
-npm add @fmind/fgraph@^1.0.1
+npm add @fmind-dev/fgraph@^1.0.1
 ```
 
 ```go
@@ -90,7 +90,7 @@ entity, err := db.Entity(ctx, "ada")
 ```
 
 ```typescript
-import { connect } from "@fmind/fgraph";
+import { connect } from "@fmind-dev/fgraph";
 
 using db = connect("memory.db");
 db.transact(
