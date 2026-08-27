@@ -19,7 +19,7 @@ go build -C go -o bin/fgraph ./cmd/fgraph
 npm ci --prefix typescript && npm run build --prefix typescript
 ```
 
-Stable installs are `uv add 'fgraph>=1,<2'`, `go get github.com/fmind/fgraph/go@v1.0.0`, and `npm add @fmind/fgraph@^1.0.0`.
+Stable installs are `uv add 'fgraph>=1,<2'`, `go get github.com/fmind/fgraph/go@v1.0.1`, and `npm add @fmind/fgraph@^1.0.1`.
 
 ## Add facts without designing a schema
 

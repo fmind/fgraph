@@ -34,12 +34,12 @@ Never put a registry token in the repository or workflow source.
 Create both annotated tags on the proved commit and push them atomically:
 
 ```bash
-git tag -a v1.0.0 -m "fgraph v1.0.0"
-git tag -a go/v1.0.0 -m "fgraph Go module v1.0.0"
+git tag -a v1.0.1 -m "fgraph v1.0.1"
+git tag -a go/v1.0.1 -m "fgraph Go module v1.0.1"
 candidate="$(git rev-parse HEAD)"
-test "$(git rev-list -n 1 v1.0.0)" = "$candidate"
-test "$(git rev-list -n 1 go/v1.0.0)" = "$candidate"
-git push --atomic origin v1.0.0 go/v1.0.0
+test "$(git rev-list -n 1 v1.0.1)" = "$candidate"
+test "$(git rev-list -n 1 go/v1.0.1)" = "$candidate"
+git push --atomic origin v1.0.1 go/v1.0.1
 ```
 
 The root tag starts `.github/workflows/release.yml`. The workflow:
@@ -58,9 +58,9 @@ Tags and registries are append-only. If publication partially fails, keep the Gi
 Test outside the checkout:
 
 ```bash
-uvx --from fgraph==1.0.0 fgraph version
-go install github.com/fmind/fgraph/go/cmd/fgraph@v1.0.0
-npx --yes @fmind/fgraph@1.0.0 --version
+uvx --from fgraph==1.0.1 fgraph version
+go install github.com/fmind/fgraph/go/cmd/fgraph@v1.0.1
+npx --yes @fmind/fgraph@1.0.1 --version
 ```
 
-Download the release assets, verify `SHA256SUMS`, then run `gh release verify v1.0.0` and `gh release verify-asset v1.0.0 <artifact>`. Create one database in each runtime, open it read-only from the other two, run `doctor`, and confirm the public docs and release links before announcing the release.
+Download the release assets, verify `SHA256SUMS`, then run `gh release verify v1.0.1` and `gh release verify-asset v1.0.1 <artifact>`. Create one database in each runtime, open it read-only from the other two, run `doctor`, and confirm the public docs and release links before announcing the release.

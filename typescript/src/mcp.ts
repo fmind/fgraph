@@ -289,7 +289,7 @@ export interface McpOptions {
 export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   const writable = options.write === true;
   const server = new McpServer(
-    { name: "fgraph", version: "1.0.0" },
+    { name: "fgraph", version: "1.0.1" },
     {
       capabilities: { tools: {}, resources: {} },
       instructions:

@@ -4,6 +4,12 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.0.1] - 2026-08-27
+
+### Fixed
+
+- Publish the local npm release artifact as a filesystem path so npm does not parse it as a Git repository.
+
 ## [1.0.0] - 2026-08-26
 
 ### Added
