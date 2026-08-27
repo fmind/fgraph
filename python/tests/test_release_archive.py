@@ -36,6 +36,14 @@ def test_release_workflow_publishes_local_npm_tarball() -> None:
     )
 
 
+def test_release_workflow_uses_container_backed_pypi_action_commit() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+
+    assert "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2" in workflow.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_release_zip_is_flat_and_byte_reproducible(tmp_path: Path) -> None:
     module = _script_module("deterministic_zip.py")
     source = tmp_path / "stage"

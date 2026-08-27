@@ -4,6 +4,12 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.0.2] - 2026-08-27
+
+### Fixed
+
+- Pin the PyPI publishing action to its container-backed commit so trusted publishing can start reliably.
+
 ## [1.0.1] - 2026-08-27
 
 ### Fixed

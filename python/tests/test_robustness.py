@@ -530,4 +530,4 @@ async def test_mcp_unexpected_tool_failures_do_not_leak_internal_details(
 
 
 def test_version_is_v1() -> None:
-    assert fgraph.__version__ == "1.0.1"
+    assert fgraph.__version__ == "1.0.2"

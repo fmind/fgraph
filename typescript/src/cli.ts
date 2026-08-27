@@ -26,7 +26,7 @@ import type {
 import { GENESIS_TX, connect } from "./store.js";
 import { INT64_MAX, INT64_MIN } from "./values.js";
 
-const VERSION = "1.0.1";
+const VERSION = "1.0.2";
 
 class UsageError extends Error {
   readonly exitCode: number;

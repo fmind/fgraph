@@ -331,7 +331,7 @@ def create_server(
             "pages, preserve returned basis_tx for follow-up reads, and supply stable operation_id plus "
             "if_basis_tx for retry-safe writes. The server is read-only unless explicitly started with write access."
         ),
-        version="1.0.1",
+        version="1.0.2",
     )
     read_annotations = ToolAnnotations(
         read_only_hint=True,
