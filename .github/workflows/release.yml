@@ -153,7 +153,7 @@ jobs:
           # granular token with Bypass 2FA enabled.
           # Later releases use npm trusted publishing and leave this secret unset.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish release/fmind-fgraph-*.tgz --access public --provenance
+        run: npm publish ./release/fmind-fgraph-*.tgz --access public --provenance
       - name: Stage Python distributions
         run: |
           mkdir python-dist

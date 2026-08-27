@@ -28,6 +28,14 @@ def _script_module(name: str) -> ModuleType:
     return module
 
 
+def test_release_workflow_publishes_local_npm_tarball() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+
+    assert "npm publish ./release/fmind-fgraph-*.tgz --access public --provenance" in workflow.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_release_zip_is_flat_and_byte_reproducible(tmp_path: Path) -> None:
     module = _script_module("deterministic_zip.py")
     source = tmp_path / "stage"
