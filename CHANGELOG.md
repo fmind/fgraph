@@ -4,6 +4,12 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.0.3] - 2026-08-27
+
+### Fixed
+
+- Complete the registry-safe fix-forward release after the partial v1.0.2 publication.
+
 ## [1.0.2] - 2026-08-27
 
 ### Fixed

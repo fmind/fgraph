@@ -64,7 +64,7 @@ func TestMainRunsSuccessfulCommand(t *testing.T) {
 	if err := reader.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "1.0.2") {
+	if !strings.Contains(string(output), "1.0.3") {
 		t.Fatalf("main version output = %q", output)
 	}
 }

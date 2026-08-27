@@ -1,6 +1,6 @@
 {
   "name": "@fmind-dev/fgraph",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Embedded temporal fact store in a single SQLite file",
   "author": "Médéric Hurier",
   "license": "MIT",

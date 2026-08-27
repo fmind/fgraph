@@ -18,7 +18,7 @@ const (
 	GenesisTx            = 64
 	GenesisFactCount     = 39
 	FirstUserID          = 65
-	Version              = "1.0.2"
+	Version              = "1.0.3"
 	DefaultQueryBudget   = 100_000
 	MaxMCPOutputBytes    = 256 << 10
 )
