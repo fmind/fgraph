@@ -4,6 +4,8 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.0.4] - 2026-08-28
+
 ### Fixed
 
 - Terminate a timed-out Python embedding command's process tree, even when a descendant holds stdout open.

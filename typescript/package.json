@@ -1,6 +1,6 @@
 {
   "name": "@fmind-dev/fgraph",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Embedded temporal fact store in a single SQLite file",
   "author": "Médéric Hurier",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "directory": "typescript"
   },
   "type": "module",
+  "packageManager": "npm@12.0.2",
   "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=24.19.0"

@@ -34,6 +34,7 @@ def test_release_workflow_publishes_local_npm_tarball_with_oidc() -> None:
     contents = workflow.read_text(encoding="utf-8")
 
     assert "      id-token: write" in contents
+    assert "          install_args: npm" in contents.splitlines()
     assert "        run: npm publish ./release/fmind-dev-fgraph-*.tgz --access public" in contents.splitlines()
     assert "NODE_AUTH_TOKEN" not in contents
     assert "NPM_TOKEN" not in contents
@@ -46,6 +47,30 @@ def test_release_workflow_uses_container_backed_pypi_action_commit() -> None:
     assert "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2" in workflow.read_text(
         encoding="utf-8"
     )
+
+
+@pytest.mark.parametrize(
+    ("manifest", "expected"),
+    [
+        ([{"filename": "fmind-dev-fgraph-test.tgz"}], "fmind-dev-fgraph-test.tgz"),
+        (
+            {"@fmind-dev/fgraph": {"filename": "fmind-dev-fgraph-test.tgz"}},
+            "fmind-dev-fgraph-test.tgz",
+        ),
+    ],
+)
+def test_npm_pack_filename_accepts_supported_npm_json_shapes(manifest: object, expected: str) -> None:
+    package_smoke = _script_module("test_packages.py")
+
+    assert package_smoke.npm_pack_filename(manifest) == expected
+
+
+@pytest.mark.parametrize("manifest", [[], {}, {"package": {}}, {"first": {}, "second": {}}])
+def test_npm_pack_filename_rejects_ambiguous_manifests(manifest: object) -> None:
+    package_smoke = _script_module("test_packages.py")
+
+    with pytest.raises(RuntimeError, match="unexpected manifest"):
+        package_smoke.npm_pack_filename(manifest)
 
 
 def test_python_coverage_gate_uses_fractional_precision() -> None:

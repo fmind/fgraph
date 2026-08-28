@@ -86,6 +86,17 @@ with fgraph.connect(":memory:") as db:
         raise RuntimeError(f"installed Python CLI reports {result.stdout.strip()!r}, expected {version!r}")
 
 
+def npm_pack_filename(manifest: object) -> str:
+    # npm 12 keys JSON manifests by package name, while npm 11 returned an array.
+    records = manifest if isinstance(manifest, list) else list(manifest.values()) if isinstance(manifest, dict) else []
+    if len(records) != 1 or not isinstance(records[0], dict):
+        raise RuntimeError(f"npm pack returned an unexpected manifest: {manifest!r}")
+    filename = records[0].get("filename")
+    if not isinstance(filename, str) or not filename:
+        raise RuntimeError(f"npm pack returned an unexpected manifest: {manifest!r}")
+    return filename
+
+
 def _typescript_smoke(work: Path, version: str) -> None:
     package_dir = work / "npm-package"
     package_dir.mkdir()
@@ -95,9 +106,7 @@ def _typescript_smoke(work: Path, version: str) -> None:
         capture_output=True,
     )
     records = json.loads(packed.stdout)
-    if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0].get("filename"), str):
-        raise RuntimeError(f"npm pack returned an unexpected manifest: {records!r}")
-    archive = package_dir / records[0]["filename"]
+    archive = package_dir / npm_pack_filename(records)
     with tarfile.open(archive, "r:gz") as package:
         names = set(package.getnames())
     required = {

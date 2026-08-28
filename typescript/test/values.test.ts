@@ -38,7 +38,7 @@ import {
 
 describe("public package and errors", () => {
   it("exports the version and reports typed versus native errors", () => {
-    expect(api.version).toBe("1.0.3");
+    expect(api.version).toBe("1.0.4");
     expect(api.canonicalValueJson({ b: 2, a: 1 })).toBe('{"a":1,"b":2}');
     expect(errorName(new FGraphError("typed"))).toBe("FGraphError");
     expect(errorName(new Error("native"))).toBe("Error");

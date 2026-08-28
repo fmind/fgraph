@@ -35,12 +35,12 @@ Both registries exchange GitHub's short-lived OIDC identity for publication cred
 Create both annotated tags on the proved commit and push them atomically:
 
 ```bash
-git tag -a v1.0.3 -m "fgraph v1.0.3"
-git tag -a go/v1.0.3 -m "fgraph Go module v1.0.3"
+git tag -a v1.0.4 -m "fgraph v1.0.4"
+git tag -a go/v1.0.4 -m "fgraph Go module v1.0.4"
 candidate="$(git rev-parse HEAD)"
-test "$(git rev-list -n 1 v1.0.3)" = "$candidate"
-test "$(git rev-list -n 1 go/v1.0.3)" = "$candidate"
-git push --atomic origin v1.0.3 go/v1.0.3
+test "$(git rev-list -n 1 v1.0.4)" = "$candidate"
+test "$(git rev-list -n 1 go/v1.0.4)" = "$candidate"
+git push --atomic origin v1.0.4 go/v1.0.4
 ```
 
 The root tag starts `.github/workflows/release.yml`. The workflow:
@@ -61,9 +61,9 @@ Tags and registries are append-only. If publication partially fails, keep the Gi
 Test outside the checkout:
 
 ```bash
-uvx --from fgraph==1.0.3 fgraph version
-go install github.com/fmind/fgraph/go/cmd/fgraph@v1.0.3
-npx --yes @fmind-dev/fgraph@1.0.3 --version
+uvx --from fgraph==1.0.4 fgraph version
+go install github.com/fmind/fgraph/go/cmd/fgraph@v1.0.4
+npx --yes @fmind-dev/fgraph@1.0.4 --version
 ```
 
-Download the release assets, verify `SHA256SUMS`, then run `gh release verify v1.0.3` and `gh release verify-asset v1.0.3 <artifact>`. Create one database in each runtime, open it read-only from the other two, run `doctor`, and confirm the public docs and release links before announcing the release.
+Download the release assets, verify `SHA256SUMS`, then run `gh release verify v1.0.4` and `gh release verify-asset v1.0.4 <artifact>`. Create one database in each runtime, open it read-only from the other two, run `doctor`, and confirm the public docs and release links before announcing the release.

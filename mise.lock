@@ -144,6 +144,22 @@ url = "https://nodejs.org/dist/v24.20.0/node-v24.20.0-darwin-arm64.tar.gz"
 checksum = "sha256:6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba"
 url = "https://nodejs.org/dist/v24.20.0/node-v24.20.0-win-x64.zip"
 
+[[tools.npm]]
+version = "12.0.2"
+backend = "aqua:npm/cli"
+
+[tools.npm."platforms.linux-x64"]
+checksum = "sha256:5dbb86c71d07a1957f2e90734092dd6a58bdcd9ebc2d8d41ca1c6e6a21d364e1"
+url = "https://registry.npmjs.org/npm/-/npm-12.0.2.tgz"
+
+[tools.npm."platforms.macos-arm64"]
+checksum = "sha256:5dbb86c71d07a1957f2e90734092dd6a58bdcd9ebc2d8d41ca1c6e6a21d364e1"
+url = "https://registry.npmjs.org/npm/-/npm-12.0.2.tgz"
+
+[tools.npm."platforms.windows-x64"]
+checksum = "sha256:5dbb86c71d07a1957f2e90734092dd6a58bdcd9ebc2d8d41ca1c6e6a21d364e1"
+url = "https://registry.npmjs.org/npm/-/npm-12.0.2.tgz"
+
 [[tools.shellcheck]]
 version = "0.11.0"
 backend = "aqua:koalaman/shellcheck"
