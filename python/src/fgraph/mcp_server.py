@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import threading
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from functools import wraps
+from importlib import import_module
 from math import isfinite
 from typing import Any, BinaryIO, cast
 from urllib.parse import quote, urlencode
@@ -18,6 +21,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.types import ToolAnnotations
 
+from fgraph._embed_runner import START_ERROR
 from fgraph.errors import FGraphError, ReadOnly, TooLarge
 from fgraph.errors import TypeError as FGraphTypeError
 from fgraph.models import TxReport
@@ -25,6 +29,7 @@ from fgraph.store import GENESIS_TX, Db
 from fgraph.values import INT64_MAX, MAX_VALUE_BYTES, _canonical_json_document
 
 _EMBED_TIMEOUT_SECONDS = 60.0
+_EMBED_TIMEOUT_MESSAGE = "embed command timed out after 60 seconds; use a bounded local embedder"
 _MAX_TOOL_ITEMS = 100
 _MAX_ENTITY_ATTRIBUTES = 32
 _MAX_RESPONSE_BYTES = 256 * 1024
@@ -195,31 +200,57 @@ def _schema_page(
     return page_attributes, page_shapes, next_offset if next_offset < total else None
 
 
-def _kill(process: subprocess.Popen[bytes]) -> None:
-    # The embedder owns its isolated POSIX session, so helpers inheriting the
-    # stdout pipe cannot outlive the same deadline and hold this request open.
-    if os.name == "nt":
-        # A Windows process group lets CTRL+BREAK reach descendants that still
-        # own the stdout pipe after the configured command has exited.
-        with suppress(OSError):
-            os.kill(process.pid, signal.CTRL_BREAK_EVENT)
+class _WindowsJob:
+    """Own an embedder process tree without importing Windows modules elsewhere."""
+
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        # pywin32 is loaded dynamically so non-Windows installations remain portable.
+        self._api: Any = import_module("win32job")
+        self._handle: Any = self._api.CreateJobObject(None, "")
+        try:
+            self._api.AssignProcessToJobObject(self._handle, cast(Any, process)._handle)  # noqa: SLF001
+        except Exception as exc:
+            with suppress(Exception):
+                self._handle.Close()
+            raise OSError("could not assign the embed command to a Windows Job Object") from exc
+
+    def terminate(self) -> None:
+        try:
+            self._api.TerminateJobObject(self._handle, 1)
+        except Exception as exc:
+            raise OSError("could not terminate the embed command's Windows Job Object") from exc
+
+    def close(self) -> None:
+        self._handle.Close()
+
+
+def _kill(process: subprocess.Popen[bytes], windows_job: _WindowsJob | None) -> None:
+    # Group/job cleanup is unconditional because the configured launcher may
+    # have exited while a descendant still owns its stdout pipe.
+    if windows_job is not None:
+        windows_job.terminate()
     elif hasattr(os, "killpg"):
-        with suppress(OSError):
+        with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-    # This terminates the configured command and is harmless after a group kill.
-    with suppress(OSError):
-        process.kill()
+    if process.poll() is None:
+        with suppress(OSError):
+            process.kill()
 
 
 def _embed_output(arguments: list[str], text: str) -> tuple[int, str]:
-    windows_group = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    # The helper cannot launch the real Windows embedder until stdin is written,
+    # which happens only after its Job Object assignment is complete.
+    launch_arguments = (
+        [sys.executable, "-m", "fgraph._embed_runner", _canonical_json_document(arguments)]
+        if os.name == "nt"
+        else arguments
+    )
     try:
         process = subprocess.Popen(  # noqa: S603
-            arguments,
+            launch_arguments,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            creationflags=windows_group,
+            stderr=subprocess.PIPE if os.name == "nt" else subprocess.DEVNULL,
             start_new_session=os.name != "nt",
         )
     except OSError as exc:
@@ -227,8 +258,18 @@ def _embed_output(arguments: list[str], text: str) -> tuple[int, str]:
             f"embed command executable {arguments[0]!r} could not be started; check its path and permissions"
         ) from exc
 
-    timed_out = threading.Event()
+    try:
+        windows_job = _WindowsJob(process) if os.name == "nt" else None
+    except OSError as exc:
+        _kill(process, None)
+        process.wait()
+        raise FGraphTypeError("embed command could not be isolated in a Windows Job Object") from exc
+
+    deadline = time.monotonic() + _EMBED_TIMEOUT_SECONDS
     write_error: list[OSError] = []
+    output_result: list[bytes] = []
+    read_error: list[OSError] = []
+    stdout = cast(BinaryIO, process.stdout)
 
     def write_input() -> None:
         try:
@@ -242,36 +283,56 @@ def _embed_output(arguments: list[str], text: str) -> tuple[int, str]:
             if process.stdin is not None:
                 process.stdin.close()
 
-    def expire() -> None:
-        timed_out.set()
-        _kill(process)
+    def read_output() -> None:
+        try:
+            # One byte beyond the contract is enough to reject and terminate a
+            # continuously emitting child without buffering unbounded output.
+            output_result.append(stdout.read(MAX_VALUE_BYTES + 1))
+        except OSError as exc:
+            read_error.append(exc)
+        finally:
+            with suppress(OSError):
+                stdout.close()
 
     writer = threading.Thread(target=write_input, name="fgraph-embed-stdin", daemon=True)
-    timer = threading.Timer(_EMBED_TIMEOUT_SECONDS, expire)
+    reader = threading.Thread(target=read_output, name="fgraph-embed-stdout", daemon=True)
     writer.start()
-    timer.start()
+    reader.start()
     try:
-        stdout = cast(BinaryIO, process.stdout)
-        # One byte beyond the contract is enough to reject and terminate a
-        # continuously emitting child without buffering unbounded output.
-        output = stdout.read(MAX_VALUE_BYTES + 1)
+        reader.join(max(0.0, deadline - time.monotonic()))
+        if reader.is_alive():
+            raise FGraphTypeError(_EMBED_TIMEOUT_MESSAGE)
+        if read_error:
+            raise FGraphTypeError("embed command output could not be read; check the local embedder") from read_error[0]
+        output = output_result[0]
         oversized = len(output) > MAX_VALUE_BYTES
         if oversized:
-            _kill(process)
-        returncode = process.wait()
+            raise FGraphTypeError("embed command output exceeds 1 MiB; emit one compact embedding vector")
+        try:
+            returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            raise FGraphTypeError(_EMBED_TIMEOUT_MESSAGE) from None
+        if windows_job is not None:
+            stderr = cast(BinaryIO, process.stderr)
+            if stderr.read(len(START_ERROR) + 1) == START_ERROR:
+                raise FGraphTypeError(
+                    f"embed command executable {arguments[0]!r} could not be started; check its path and permissions"
+                )
+        writer.join(max(0.0, deadline - time.monotonic()))
+        if writer.is_alive():
+            raise FGraphTypeError(_EMBED_TIMEOUT_MESSAGE)
     finally:
-        timer.cancel()
-        writer.join()
-        if process.stdout is not None:
-            process.stdout.close()
-        if process.poll() is None:
-            _kill(process)
+        try:
+            _kill(process, windows_job)
             process.wait()
+            reader.join()
+            writer.join()
+            if process.stderr is not None:
+                process.stderr.close()
+        finally:
+            if windows_job is not None:
+                windows_job.close()
 
-    if oversized:
-        raise FGraphTypeError("embed command output exceeds 1 MiB; emit one compact embedding vector")
-    if timed_out.is_set():
-        raise FGraphTypeError("embed command timed out after 60 seconds; use a bounded local embedder")
     if write_error:
         raise FGraphTypeError("embed command could not read the input text; check the local embedder") from write_error[
             0

@@ -5,6 +5,7 @@ import importlib.util
 import stat
 import sys
 import tarfile
+import tomllib
 from io import BytesIO
 from pathlib import Path
 from types import ModuleType
@@ -45,6 +46,15 @@ def test_release_workflow_uses_container_backed_pypi_action_commit() -> None:
     assert "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2" in workflow.read_text(
         encoding="utf-8"
     )
+
+
+def test_python_coverage_gate_uses_fractional_precision() -> None:
+    root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((root / "python" / "pyproject.toml").read_text(encoding="utf-8"))
+    tasks = tomllib.loads((root / "mise.toml").read_text(encoding="utf-8"))
+
+    assert project["tool"]["coverage"]["report"]["precision"] == 2
+    assert tasks["tasks"]["test:python"]["run"] == "uv run pytest --cov --cov-fail-under=95"
 
 
 def test_release_zip_is_flat_and_byte_reproducible(tmp_path: Path) -> None:

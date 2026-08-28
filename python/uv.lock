@@ -519,6 +519,7 @@ version = "1.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "typer" },
 ]
 
@@ -537,6 +538,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", specifier = "==2.1.1" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = "==312" },
     { name = "typer", specifier = "==0.27.1" },
 ]
 

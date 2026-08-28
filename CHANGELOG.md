@@ -4,6 +4,10 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+### Fixed
+
+- Terminate a timed-out Python embedding command's process tree, even when a descendant holds stdout open.
+
 ### Security
 
 - Replace the bootstrap npm token with tokenless Trusted Publishing for future releases.

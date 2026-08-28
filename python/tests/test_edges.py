@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import runpy
 import sqlite3
+import subprocess
 import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from conftest import Clock
@@ -19,7 +21,9 @@ from mcp.types import CallToolResult
 from typer.testing import CliRunner
 
 import fgraph
+import fgraph._embed_runner as embed_runner
 import fgraph.cli as cli
+import fgraph.mcp_server as mcp_server
 import fgraph.store as store
 from fgraph.jsonio import loads
 from fgraph.mcp_server import create_server, embed
@@ -75,6 +79,96 @@ def test_module_entrypoint_calls_main(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "main", lambda: called.append(True))
     runpy.run_module("fgraph.__main__", run_name="__main__")
     assert called == [True]
+
+
+def test_windows_embed_runner_forwards_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    stdin = SimpleNamespace(buffer=io.BytesIO(b"text"))
+    stdout = SimpleNamespace(buffer=io.BytesIO())
+    command = ["embedder", "--json"]
+
+    def run(arguments: list[str], **options: Any) -> SimpleNamespace:
+        assert arguments == command
+        assert options == {
+            "input": b"text",
+            "stdout": stdout.buffer,
+            "stderr": subprocess.DEVNULL,
+            "check": False,
+        }
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(embed_runner.sys, "argv", ["fgraph._embed_runner", canonical_json(command)])
+    monkeypatch.setattr(embed_runner.sys, "stdin", stdin)
+    monkeypatch.setattr(embed_runner.sys, "stdout", stdout)
+    monkeypatch.setattr(embed_runner.subprocess, "run", run)
+
+    assert embed_runner.main() == 7
+
+    stderr = SimpleNamespace(buffer=io.BytesIO())
+    monkeypatch.setattr(embed_runner.sys, "stderr", stderr)
+
+    def missing(*_args: Any, **_options: Any) -> None:
+        raise FileNotFoundError
+
+    monkeypatch.setattr(embed_runner.subprocess, "run", missing)
+    assert embed_runner.main() == 1
+    assert stderr.buffer.getvalue() == embed_runner.START_ERROR
+
+
+def test_windows_job_owns_and_terminates_process_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[tuple[Any, ...]] = []
+    handle = SimpleNamespace(Close=lambda: events.append(("close",)))
+    api = SimpleNamespace(
+        CreateJobObject=lambda _security, _name: handle,
+        AssignProcessToJobObject=lambda job, process: events.append(("assign", job, process)),
+        TerminateJobObject=lambda job, code: events.append(("terminate", job, code)),
+    )
+    monkeypatch.setattr(mcp_server, "import_module", lambda _name: api)
+
+    job = mcp_server._WindowsJob(cast(Any, SimpleNamespace(_handle=42)))  # noqa: SLF001
+    job.terminate()
+    job.close()
+    assert events == [("assign", handle, 42), ("terminate", handle, 1), ("close",)]
+
+    def fail_assignment(_job: Any, _process: Any) -> None:
+        raise RuntimeError("assignment failed")
+
+    api.AssignProcessToJobObject = fail_assignment
+    with pytest.raises(OSError, match="assign"):
+        mcp_server._WindowsJob(cast(Any, SimpleNamespace(_handle=43)))  # noqa: SLF001
+    assert events[-1] == ("close",)
+
+    def fail_termination(_job: Any, _code: int) -> None:
+        raise RuntimeError("termination failed")
+
+    api.AssignProcessToJobObject = lambda job, process: events.append(("assign", job, process))
+    api.TerminateJobObject = fail_termination
+    job = mcp_server._WindowsJob(cast(Any, SimpleNamespace(_handle=44)))  # noqa: SLF001
+    with pytest.raises(OSError, match="terminate"):
+        job.terminate()
+    job.close()
+
+
+def test_windows_embed_runner_preserves_startup_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+
+    class Job:
+        def __init__(self, _process: subprocess.Popen[bytes]) -> None:
+            events.append("assigned")
+
+        def terminate(self) -> None:
+            events.append("terminated")
+
+        def close(self) -> None:
+            events.append("closed")
+
+    monkeypatch.setattr(mcp_server.os, "name", "nt")
+    monkeypatch.setattr(mcp_server, "_WindowsJob", Job)
+    command = canonical_json(["/definitely/missing/fgraph-embedder"])
+
+    with pytest.raises(fgraph.TypeError, match="could not be started"):
+        embed(command, "text")
+
+    assert events == ["assigned", "terminated", "closed"]
 
 
 def test_strict_json_rejects_invalid_syntax_and_constants() -> None:
@@ -632,16 +726,26 @@ def test_embed_process_failures_are_typed(monkeypatch: pytest.MonkeyPatch) -> No
         embed(timeout, "text")
 
 
-def test_embed_timeout_terminates_inherited_stdout_processes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("fgraph.mcp_server._EMBED_TIMEOUT_SECONDS", 0.05)
-    launcher = "import subprocess,sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])"
+def test_embed_timeout_terminates_inherited_stdout_processes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("fgraph.mcp_server._EMBED_TIMEOUT_SECONDS", 0.5)
+    ready = tmp_path / "descendant-started"
+    marker = tmp_path / "descendant-survived"
+    child = f"import pathlib,time; time.sleep(1); pathlib.Path({str(marker)!r}).touch()"
+    launcher = (
+        "import pathlib,subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+        f"pathlib.Path({str(ready)!r}).touch(); time.sleep(2)"
+    )
     command = canonical_json([sys.executable, "-c", launcher])
 
     started = time.monotonic()
     with pytest.raises(fgraph.TypeError, match="timed out"):
         embed(command, "text")
 
-    assert time.monotonic() - started < 1.0
+    assert time.monotonic() - started < 1.5
+    assert ready.exists()
+    time.sleep(1.0)
+    assert not marker.exists()
 
 
 def test_mcp_embedding_and_context_paths(db: fgraph.Db) -> None:

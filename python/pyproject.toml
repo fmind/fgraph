@@ -13,6 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Médéric Hurier" }]
 dependencies = [
   "mcp==2.1.1",
+  "pywin32==312; sys_platform == 'win32'",
   "typer==0.27.1",
 ]
 
@@ -47,6 +48,7 @@ branch = true
 source = ["fgraph"]
 
 [tool.coverage.report]
+precision = 2
 show_missing = true
 skip_covered = true
 
