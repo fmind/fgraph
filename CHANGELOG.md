@@ -4,6 +4,29 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.1.0] - 2026-08-28
+
+### Added
+
+- Expose oversized portable MCP change events through basis- and digest-pinned 128 KiB chunks without blocking later events.
+- Share adversarial Unicode, snapshot-integrity, and portability cases across Python, Go, and TypeScript conformance tests.
+
+### Changed
+
+- Stream query candidates, snapshots, event feeds, restore input, and CLI input/output where practical, with bounded buffers and exact work accounting.
+- Split npm and PyPI Trusted Publishing into independently retryable jobs and publish the GitHub release only after both registries succeed.
+- Verify benchmark documentation against raw evidence and expand release-version consistency checks from runtime metadata to public install docs and tests.
+
+### Fixed
+
+- Bind restored receipt timestamps, created identities, event identities, operation ids, hashes, and canonical payloads to the durable snapshot contract.
+- Reject malformed Unicode, control-bearing operation ids, oversized records, invalid integer wire values, and corrupted schema/index declarations consistently across runtimes.
+- Preserve Unicode line separators in differential NDJSON traces and charge duplicate batched query bindings against the configured work budget.
+
+### Security
+
+- Enforce bounded portable record reads, MCP page budgets, integrity-checked event chunks, and fail-closed release retry behavior.
+
 ## [1.0.4] - 2026-08-28
 
 ### Fixed

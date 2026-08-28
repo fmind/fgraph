@@ -688,8 +688,8 @@ func TestDoctorFTSRowFailures(t *testing.T) {
 	}
 }
 
-func TestVersionIsOneZeroOne(t *testing.T) {
-	if Version != "1.0.4" {
+func TestVersionMatchesRelease(t *testing.T) {
+	if Version != "1.1.0" {
 		t.Fatalf("version = %q", Version)
 	}
 }

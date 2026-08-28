@@ -31,7 +31,7 @@ import {
 } from "./store.js";
 import { INT64_MAX, INT64_MIN } from "./values.js";
 
-const VERSION = "1.0.4";
+const VERSION = "1.1.0";
 
 class UsageError extends Error {
   readonly exitCode: number;

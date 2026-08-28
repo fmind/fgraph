@@ -94,6 +94,11 @@ def main() -> None:
             r'^__version__\s*=\s*"([^"]+)"',
             "Python API",
         ),
+        "Python CLI test": _single_match(
+            ROOT / "python" / "tests" / "test_cli_mcp.py",
+            r'^\s*assert _invoke\(\["version"\]\)\.stdout\.strip\(\) == "([^"]+)"',
+            "Python CLI test",
+        ),
         "Python lock": _python_lock_version(),
         "Python MCP": _single_match(
             ROOT / "python" / "src" / "fgraph" / "mcp_server.py",
