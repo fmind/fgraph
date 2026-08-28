@@ -11,9 +11,10 @@ Run the complete workload from the repository root:
 ```bash
 mise run all
 mise run benchmark
-mise run benchmark:verify
 ```
+
+Review and commit only the generated benchmark evidence, then verify it from the resulting clean tree with `mise run benchmark:verify`. The verifier intentionally rejects uncommitted evidence because the benchmark metadata records the clean source candidate measured before those generated files changed.
 
 The harness uses no timing threshold. It measures each native CLI independently at 1,000, 10,000, and 100,000 entities, including fresh-process startup for reads. Filesystem, hardware, runtime, and SQLite build differences affect results, so rerun it on the target environment before making a capacity decision.
 
-Release measurements follow the clean-source sequence in [`RELEASING.md`](../RELEASING.md): first commit the source candidate, then measure it, review and commit only the evidence, and finally verify the clean release candidate.
+Release measurements follow the complete clean-source sequence in [`RELEASING.md`](../RELEASING.md).
