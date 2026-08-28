@@ -148,12 +148,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" release/*
           --verify-tag --draft --generate-notes --title "$GITHUB_REF_NAME"
       - name: Publish npm package
-        env:
-          # The first scoped-package publication needs a short-lived read-write
-          # granular token with Bypass 2FA enabled.
-          # Later releases use npm trusted publishing and leave this secret unset.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./release/fmind-dev-fgraph-*.tgz --access public --provenance
+        run: npm publish ./release/fmind-dev-fgraph-*.tgz --access public
       - name: Stage Python distributions
         run: |
           mkdir python-dist

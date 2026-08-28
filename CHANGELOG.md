@@ -4,7 +4,11 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
-## [1.0.3] - 2026-08-27
+### Security
+
+- Replace the bootstrap npm token with tokenless Trusted Publishing for future releases.
+
+## [1.0.3] - 2026-08-28
 
 ### Fixed
 

@@ -23,11 +23,12 @@ Any source, dependency, tool, specification, or benchmark-harness change after m
 
 ## 3. Configure registries once
 
-- Keep the protected GitHub `release` environment and its required maintainer review.
+- Keep the GitHub `release` environment limited to `v*` tags.
 - Configure PyPI trusted publishing for project `fgraph`, workflow `release.yml`, and environment `release`.
-- For the first `@fmind-dev/fgraph` publication, add a short-lived read-write granular npm token with **Bypass 2FA** enabled as the `release` environment secret `NPM_TOKEN`. After the package exists, run `npm trust github @fmind-dev/fgraph --repository fmind/fgraph --file release.yml --environment release --allow-publish`, verify it with `npm trust list @fmind-dev/fgraph`, delete the GitHub secret, and revoke the token.
+- Configure npm trusted publishing for package `@fmind-dev/fgraph`, repository `fmind/fgraph`, workflow `release.yml`, and environment `release`.
+- Require two-factor authentication and disallow token-based publication in the npm package settings.
 
-Never put a registry token in the repository or workflow source.
+Both registries exchange GitHub's short-lived OIDC identity for publication credentials. Do not add registry tokens to GitHub, the repository, or the workflow.
 
 ## 4. Publish
 
@@ -47,9 +48,11 @@ The root tag starts `.github/workflows/release.yml`. The workflow:
 1. reruns the clean release gate and verifies both tags;
 1. builds deterministic Python, npm, and five native Go archives plus checksums;
 1. executes every Go archive on its native runner;
-1. waits at the protected `release` environment;
+1. enters the tag-limited `release` environment;
 1. creates a draft GitHub release with the exact assets;
-1. publishes npm, then PyPI, then makes the GitHub release public.
+1. publishes npm and PyPI with Trusted Publishing, then makes the GitHub release public.
+
+No approval or registry token is required after the two trusted publishers are configured.
 
 Tags and registries are append-only. If publication partially fails, keep the GitHub release draft, document the state, and fix forward with a patch version; never move a public tag.
 

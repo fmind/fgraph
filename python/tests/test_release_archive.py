@@ -28,12 +28,15 @@ def _script_module(name: str) -> ModuleType:
     return module
 
 
-def test_release_workflow_publishes_local_npm_tarball() -> None:
+def test_release_workflow_publishes_local_npm_tarball_with_oidc() -> None:
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+    contents = workflow.read_text(encoding="utf-8")
 
-    assert "npm publish ./release/fmind-dev-fgraph-*.tgz --access public --provenance" in workflow.read_text(
-        encoding="utf-8"
-    )
+    assert "      id-token: write" in contents
+    assert "        run: npm publish ./release/fmind-dev-fgraph-*.tgz --access public" in contents.splitlines()
+    assert "NODE_AUTH_TOKEN" not in contents
+    assert "NPM_TOKEN" not in contents
+    assert "--provenance" not in contents
 
 
 def test_release_workflow_uses_container_backed_pypi_action_commit() -> None:
