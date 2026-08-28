@@ -12,27 +12,27 @@
 <line x1="90" y1="207.0" x2="890" y2="207.0" stroke="#334155"/>
 <text x="80" y="211.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.4</text>
 <line x1="90" y1="131.0" x2="890" y2="131.0" stroke="#334155"/>
-<text x="80" y="135.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.5</text>
+<text x="80" y="135.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.6</text>
 <line x1="90" y1="55.0" x2="890" y2="55.0" stroke="#334155"/>
 <text x="80" y="59.0" text-anchor="end" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">0.7</text>
-<polyline points="90.0,344.4 290.0,333.5 490.0,314.2 690.0,89.5 890.0,108.3" fill="none" stroke="#646CFF" stroke-width="3"/>
-<circle cx="90.0" cy="344.4" r="5" fill="#646CFF"/>
-<circle cx="290.0" cy="333.5" r="5" fill="#646CFF"/>
-<circle cx="490.0" cy="314.2" r="5" fill="#646CFF"/>
+<polyline points="90.0,342.1 290.0,335.7 490.0,321.3 690.0,89.5 890.0,108.3" fill="none" stroke="#646CFF" stroke-width="3"/>
+<circle cx="90.0" cy="342.1" r="5" fill="#646CFF"/>
+<circle cx="290.0" cy="335.7" r="5" fill="#646CFF"/>
+<circle cx="490.0" cy="321.3" r="5" fill="#646CFF"/>
 <circle cx="690.0" cy="89.5" r="5" fill="#646CFF"/>
 <circle cx="890.0" cy="108.3" r="5" fill="#646CFF"/>
-<polyline points="90.0,381.8 290.0,374.8 490.0,339.4 690.0,121.1 890.0,150.9" fill="none" stroke="#22D3EE" stroke-width="3" stroke-dasharray="8 5"/>
-<rect x="85.0" y="376.8" width="10" height="10" fill="#22D3EE"/>
-<rect x="285.0" y="369.8" width="10" height="10" fill="#22D3EE"/>
-<rect x="485.0" y="334.4" width="10" height="10" fill="#22D3EE"/>
-<rect x="685.0" y="116.1" width="10" height="10" fill="#22D3EE"/>
-<rect x="885.0" y="145.9" width="10" height="10" fill="#22D3EE"/>
-<polyline points="90.0,336.5 290.0,341.5 490.0,333.6 690.0,99.1 890.0,206.6" fill="none" stroke="#FB923C" stroke-width="3" stroke-dasharray="2 4"/>
-<path d="M 90.0 330.5 L 96.0 336.5 L 90.0 342.5 L 84.0 336.5 Z" fill="#FB923C"/>
-<path d="M 290.0 335.5 L 296.0 341.5 L 290.0 347.5 L 284.0 341.5 Z" fill="#FB923C"/>
-<path d="M 490.0 327.6 L 496.0 333.6 L 490.0 339.6 L 484.0 333.6 Z" fill="#FB923C"/>
-<path d="M 690.0 93.1 L 696.0 99.1 L 690.0 105.1 L 684.0 99.1 Z" fill="#FB923C"/>
-<path d="M 890.0 200.6 L 896.0 206.6 L 890.0 212.6 L 884.0 206.6 Z" fill="#FB923C"/>
+<polyline points="90.0,366.7 290.0,381.0 490.0,344.5 690.0,155.4 890.0,155.1" fill="none" stroke="#22D3EE" stroke-width="3" stroke-dasharray="8 5"/>
+<rect x="85.0" y="361.7" width="10" height="10" fill="#22D3EE"/>
+<rect x="285.0" y="376.0" width="10" height="10" fill="#22D3EE"/>
+<rect x="485.0" y="339.5" width="10" height="10" fill="#22D3EE"/>
+<rect x="685.0" y="150.4" width="10" height="10" fill="#22D3EE"/>
+<rect x="885.0" y="150.1" width="10" height="10" fill="#22D3EE"/>
+<polyline points="90.0,344.2 290.0,315.2 490.0,327.5 690.0,132.7 890.0,191.2" fill="none" stroke="#FB923C" stroke-width="3" stroke-dasharray="2 4"/>
+<path d="M 90.0 338.2 L 96.0 344.2 L 90.0 350.2 L 84.0 344.2 Z" fill="#FB923C"/>
+<path d="M 290.0 309.2 L 296.0 315.2 L 290.0 321.2 L 284.0 315.2 Z" fill="#FB923C"/>
+<path d="M 490.0 321.5 L 496.0 327.5 L 490.0 333.5 L 484.0 327.5 Z" fill="#FB923C"/>
+<path d="M 690.0 126.7 L 696.0 132.7 L 690.0 138.7 L 684.0 132.7 Z" fill="#FB923C"/>
+<path d="M 890.0 185.2 L 896.0 191.2 L 890.0 197.2 L 884.0 191.2 Z" fill="#FB923C"/>
 <text x="90.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">1</text>
 <text x="290.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">2</text>
 <text x="490.0" y="459" text-anchor="middle" font-family="'Inter Variable', Inter, sans-serif" font-size="12" fill="#CBD5E1">3</text>
