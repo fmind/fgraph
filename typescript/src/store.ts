@@ -3500,6 +3500,7 @@ export class Db implements Disposable {
     pattern: unknown[],
     depth: number,
     seen: ReadonlySet<bigint>,
+    spend?: () => void,
   ): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const rows = this._visibleFactRows(entity);
@@ -3521,6 +3522,7 @@ export class Db implements Disposable {
       }
     }
     for (const row of rows) {
+      spend?.();
       const attribute = this.#idNames.get(row.a) as string;
       if (!requestedAll && !direct.has(attribute) && !nested.has(attribute))
         continue;
@@ -3535,6 +3537,7 @@ export class Db implements Disposable {
               nested.get(attribute) as unknown[],
               depth - 1,
               new Set([...seen, target]),
+              spend,
             );
       } else if (tag === REF && requestedAll && depth > 1) {
         const target = row.v as bigint;
@@ -3545,6 +3548,7 @@ export class Db implements Disposable {
               ["*"],
               depth - 1,
               new Set([...seen, target]),
+              spend,
             );
       } else value = this._wire(tag, row.v);
       if (this._schema(row.a).many) {
@@ -3568,16 +3572,18 @@ export class Db implements Disposable {
           `SELECT e FROM fgraph_facts WHERE a=? AND t=0 AND v=? AND ${visibility.sql} ORDER BY id`,
         )
         .all(attribute, entity, ...visibility.params);
-      result[item] = inbound.map((row) =>
-        depth > 1
+      result[item] = inbound.map((row) => {
+        spend?.();
+        return depth > 1
           ? this._pullEntity(
               row.e,
               ["*"],
               Math.max(depth - 1, 0),
               new Set([...seen, row.e]),
+              spend,
             )
-          : { ref: this._nameOrId(row.e) },
-      );
+          : { ref: this._nameOrId(row.e) };
+      });
     }
     return result;
   }
@@ -6324,6 +6330,13 @@ export class Db implements Disposable {
         "INSERT INTO fgraph_ids(id,name,gid,created_tx) VALUES (?,?,?,?)",
       );
       const restoreReceipt = (wrapper: Record<string, unknown>): string => {
+        if (
+          Object.keys(wrapper).length !== 1 ||
+          !Object.hasOwn(wrapper, "receipt")
+        )
+          throw new TypeError(
+            "snapshot receipt wrapper must contain only the receipt key",
+          );
         const receipt = wrapper.receipt;
         if (
           !isRecord(receipt) ||
@@ -6443,6 +6456,13 @@ export class Db implements Disposable {
         return id;
       };
       const restoreFact = (wrapper: Record<string, unknown>): void => {
+        if (
+          Object.keys(wrapper).length !== 1 ||
+          !Object.hasOwn(wrapper, "fact")
+        )
+          throw new TypeError(
+            "snapshot fact wrapper must contain only the fact key",
+          );
         const tuple = wrapper.fact;
         if (
           !Array.isArray(tuple) ||

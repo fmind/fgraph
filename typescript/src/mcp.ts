@@ -5,6 +5,7 @@ import type { Readable, Writable } from "node:stream";
 import {
   McpServer,
   ResourceTemplate,
+  UriTemplate,
   type JSONRPCMessage,
   type Transport,
 } from "@modelcontextprotocol/server";
@@ -30,6 +31,27 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const JSON_WITH_RAW = JSON as typeof JSON & {
   rawJSON(text: string): unknown;
 };
+
+class RoutableUriTemplate extends UriTemplate {
+  readonly #router: UriTemplate;
+
+  constructor(advertised: string, routing: string = advertised) {
+    super(advertised);
+    this.#router = new UriTemplate(routing);
+  }
+
+  override match(uri: string): ReturnType<UriTemplate["match"]> {
+    // SDK 2.0.0 requires every RFC 6570 query variable during matching. Keep
+    // discovery normative while its reserved expansion accepts optional query.
+    return this.#router.match(uri);
+  }
+}
+
+function resourceTemplate(advertised: string, routing?: string) {
+  return new ResourceTemplate(new RoutableUriTemplate(advertised, routing), {
+    list: undefined,
+  });
+}
 
 function stringifyMcpMessage(message: JSONRPCMessage): string {
   const rendered = JSON.stringify(message, (_key, value: unknown) => {
@@ -937,11 +959,10 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   };
   server.registerResource(
     "schema",
-    // The installed SDK requires every RFC 6570 query variable to be present.
-    // A reserved suffix keeps prefix-only and prefix+cursor URIs routable.
-    new ResourceTemplate("fgraph://schema{+query}", {
-      list: undefined,
-    }),
+    resourceTemplate(
+      "fgraph://schema{?prefix,cursor}",
+      "fgraph://schema{+query}",
+    ),
     {
       description: "Bounded, basis-pinned schema snapshot pages",
       mimeType: "application/json",
@@ -1015,9 +1036,10 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   );
   server.registerResource(
     "entity",
-    new ResourceTemplate("fgraph://entity/{+selector}", {
-      list: undefined,
-    }),
+    resourceTemplate(
+      "fgraph://entity/{selector}{?at,cursor}",
+      "fgraph://entity/{+selector}",
+    ),
     {
       description: "Current entity datoms, bounded to 100 per cursor",
       mimeType: "application/json",
@@ -1044,7 +1066,7 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   );
   server.registerResource(
     "transaction",
-    new ResourceTemplate("fgraph://tx/{tx}", { list: undefined }),
+    resourceTemplate("fgraph://tx/{tx}"),
     {
       description: "One immutable transaction receipt with bounded evidence",
       mimeType: "application/json",
@@ -1063,9 +1085,10 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   );
   server.registerResource(
     "changes",
-    new ResourceTemplate("fgraph://changes{+query}", {
-      list: undefined,
-    }),
+    resourceTemplate(
+      "fgraph://changes{?since,cursor}",
+      "fgraph://changes{+query}",
+    ),
     {
       description: "Portable committed events after a pinned transaction",
       mimeType: "application/json",
@@ -1171,11 +1194,10 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
   );
   server.registerResource(
     "event",
-    // The installed SDK only routes optional query variables reliably through
-    // a reserved expansion; the advertised URI still carries basis/offset/digest.
-    new ResourceTemplate("fgraph://event/{event}{+query}", {
-      list: undefined,
-    }),
+    resourceTemplate(
+      "fgraph://event/{event}{?basis,offset,digest}",
+      "fgraph://event/{event}{+query}",
+    ),
     {
       description: "Integrity-checked chunks of one portable event",
       mimeType: "application/json",

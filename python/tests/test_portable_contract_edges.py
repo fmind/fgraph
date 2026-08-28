@@ -394,6 +394,19 @@ def test_doctor_rejects_anonymous_fact_attributes() -> None:
     assert any("invalid fact attributes" in problem for problem in report["problems"])
 
 
+def test_doctor_rejects_reserved_application_fact_attributes() -> None:
+    with fgraph.connect(":memory:") as db:
+        db.transact({"id": "reserved/item", "reserved/value": 1})
+        db._connection.execute(  # noqa: SLF001
+            "UPDATE fgraph_ids SET name='fgraph/forged' WHERE name='reserved/value'"
+        )
+
+        report = db.doctor()
+
+    assert report["ok"] is False
+    assert any("invalid fact attributes" in problem for problem in report["problems"])
+
+
 def test_doctor_rejects_unicode_control_operation_id() -> None:
     with fgraph.connect(":memory:") as db:
         report = db.transact({"id": "operation/item"}, operation_id="operation:valid")

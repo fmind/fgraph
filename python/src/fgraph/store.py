@@ -2903,6 +2903,14 @@ class Db:
         }
 
     def _visible_fact_rows(self, *, entity: int | None = None, attribute: int | None = None) -> list[sqlite3.Row]:
+        return list(self._iter_visible_fact_rows(entity=entity, attribute=attribute))
+
+    def _iter_visible_fact_rows(
+        self,
+        *,
+        entity: int | None = None,
+        attribute: int | None = None,
+    ) -> Iterator[sqlite3.Row]:
         visibility, parameters = self._visibility()
         conditions = [visibility]
         values: list[Any] = list(parameters)
@@ -2912,12 +2920,20 @@ class Db:
         if attribute is not None:
             conditions.append("a=?")
             values.append(attribute)
-        return self._connection.execute(
-            f"SELECT * FROM fgraph_facts WHERE {' AND '.join(conditions)} ORDER BY a, tx, id",  # noqa: S608
-            values,
-        ).fetchall()
+        return iter(
+            self._connection.execute(
+                f"SELECT * FROM fgraph_facts WHERE {' AND '.join(conditions)} ORDER BY a, tx, id",  # noqa: S608
+                values,
+            )
+        )
 
-    def _validate_pull_pattern(self, pattern: Any) -> None:
+    def _validate_pull_pattern(
+        self,
+        pattern: Any,
+        *,
+        check_references: bool = True,
+        spend: Callable[[], None] | None = None,
+    ) -> None:
         if not isinstance(pattern, Sequence) or isinstance(pattern, (str, bytes, bytearray)):
             raise QueryError(f"pull pattern {pattern!r} is invalid; use an attribute array")
         for item in pattern:
@@ -2947,22 +2963,38 @@ class Db:
                 raise QueryError(
                     f"nested pull attribute {attribute!r} is invalid; use namespace/name or namespace/_name"
                 ) from exc
+            self._validate_pull_pattern(subpattern, check_references=check_references, spend=spend)
+            if not check_references:
+                continue
             attribute_id = self._names.get(attribute)
             if attribute_id is None:
                 raise QueryError(f"nested pull attribute {attribute!r} is unknown; declare or populate a ref attribute")
             schema = self._schema(attribute_id, self._as_of)
-            rows = self._visible_fact_rows(attribute=attribute_id)
-            if schema.type != "ref" and (not rows or any(int(row["t"]) != REF for row in rows)):
+            populated = False
+            all_refs = True
+            for row in self._iter_visible_fact_rows(attribute=attribute_id):
+                if spend is not None:
+                    spend()
+                populated = True
+                all_refs = all_refs and int(row["t"]) == REF
+            if schema.type != "ref" and (not populated or not all_refs):
                 raise QueryError(f"nested pull attribute {attribute!r} is not a ref; use a ref attribute")
-            self._validate_pull_pattern(subpattern)
 
-    def _pull_entity(self, entity: int, pattern: Sequence[Any], depth: int, seen: frozenset[int]) -> dict[str, Any]:
+    def _pull_entity(
+        self,
+        entity: int,
+        pattern: Sequence[Any],
+        depth: int,
+        seen: frozenset[int],
+        spend: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
         result: dict[str, Any] = {}
-        rows = self._visible_fact_rows(entity=entity)
         requested_all = "*" in pattern
         direct = {item for item in pattern if isinstance(item, str) and item != "*" and "/_" not in item}
         nested = {key: subpattern for item in pattern if isinstance(item, Mapping) for key, subpattern in item.items()}
-        for row in rows:
+        for row in self._iter_visible_fact_rows(entity=entity):
+            if spend is not None:
+                spend()
             attribute_id = int(row["a"])
             attribute = self._id_names.get(attribute_id, str(attribute_id))
             if not requested_all and attribute not in direct and attribute not in nested:
@@ -2973,13 +3005,13 @@ class Db:
                 if target in seen:
                     value: Any = {"ref": self._name_or_id(target)}
                 else:
-                    value = self._pull_entity(target, nested[attribute], depth - 1, seen | {target})
+                    value = self._pull_entity(target, nested[attribute], depth - 1, seen | {target}, spend)
             elif tag == REF and requested_all and depth > 1:
                 target = int(row["v"])
                 if target in seen:
                     value = {"ref": self._name_or_id(target)}
                 else:
-                    value = self._pull_entity(target, ["*"], depth - 1, seen | {target})
+                    value = self._pull_entity(target, ["*"], depth - 1, seen | {target}, spend)
             else:
                 value = self._wire(tag, row["v"])
             if self._schema(attribute_id, self._as_of).many:
@@ -2999,13 +3031,18 @@ class Db:
             inbound = self._connection.execute(
                 f"SELECT e FROM fgraph_facts WHERE a=? AND t=0 AND v=? AND {visibility} ORDER BY id",  # noqa: S608
                 (attribute_id, entity, *parameters),
-            ).fetchall()
-            result[item] = [
-                self._pull_entity(int(row["e"]), ["*"], max(depth - 1, 0), seen | {int(row["e"])})
-                if depth > 1
-                else {"ref": self._name_or_id(int(row["e"]))}
-                for row in inbound
-            ]
+            )
+            reverse: list[dict[str, Any]] = []
+            for row in inbound:
+                if spend is not None:
+                    spend()
+                inbound_entity = int(row["e"])
+                reverse.append(
+                    self._pull_entity(inbound_entity, ["*"], max(depth - 1, 0), seen | {inbound_entity}, spend)
+                    if depth > 1
+                    else {"ref": self._name_or_id(inbound_entity)}
+                )
+            result[item] = reverse
         return result
 
     def entity(self, ref: Any, depth: int = 1) -> dict[str, Any]:
@@ -3022,6 +3059,12 @@ class Db:
         self._validate_pull_pattern(pattern)
         entity = cast(int, self._resolve_read(ref))
         return self._pull_entity(entity, pattern, 1, frozenset({entity}))
+
+    def _query_pull(self, ref: Any, pattern: Sequence[Any], spend: Callable[[], None]) -> dict[str, Any]:
+        # Query pull validation and materialization share the evaluator's work cap.
+        self._validate_pull_pattern(pattern, spend=spend)
+        entity = cast(int, self._resolve_read(ref))
+        return self._pull_entity(entity, pattern, 1, frozenset({entity}), spend)
 
     def q(
         self,
@@ -5056,7 +5099,11 @@ class Db:
             "LEFT JOIN fgraph_ids i ON i.id=f.a GROUP BY f.a,i.name ORDER BY f.a"
         ):
             name = row["name"]
-            if not isinstance(name, str) or ATTRIBUTE_PATTERN.fullmatch(name) is None:
+            if (
+                not isinstance(name, str)
+                or ATTRIBUTE_PATTERN.fullmatch(name) is None
+                or (name.startswith("fgraph/") and name not in SYSTEM_NAMES)
+            ):
                 invalid_fact_attributes += int(row["facts"])
         if invalid_fact_attributes:
             fatal.append(f"invalid fact attributes: {invalid_fact_attributes}")

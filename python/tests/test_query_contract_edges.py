@@ -110,7 +110,7 @@ def test_query_low_level_validation_and_rule_failures(db: fgraph.Db) -> None:
             "current",
         )
     with pytest.raises(fgraph.QueryError, match=r"pull.*aggregate"):
-        _project(db, [["pull", "?e", ["*"]], ["count", "?e"]], [])
+        _project(db, [["pull", "?e", ["*"]], ["count", "?e"]], [], _WorkBudget(100))
 
     assert _binding_key({"?bytes": Cell(BYTES, b"\x00\xff")})
 

@@ -201,6 +201,14 @@ describe("streaming snapshot restore", () => {
       const wrapper = fact(records) as unknown as Record<string, unknown>;
       wrapper.receipt = {};
     });
+    reject((records) => {
+      const wrapper = receipt(records) as unknown as Record<string, unknown>;
+      wrapper.extra = true;
+    });
+    reject((records) => {
+      const wrapper = fact(records) as unknown as Record<string, unknown>;
+      wrapper.extra = true;
+    });
     reject(
       (records) => {
         (records.at(-1) as Record<string, unknown>).sha256 = 7;

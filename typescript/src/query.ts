@@ -978,7 +978,12 @@ function sortCompare(left: unknown, right: unknown): number {
   return compareUnicode(a, b);
 }
 
-function findValue(db: Db, item: unknown, binding: Binding): unknown {
+function findValue(
+  db: Db,
+  item: unknown,
+  binding: Binding,
+  work: WorkBudget,
+): unknown {
   if (isVariable(item)) {
     const cell = binding.get(item);
     if (cell === undefined)
@@ -998,7 +1003,10 @@ function findValue(db: Db, item: unknown, binding: Binding): unknown {
       throw new QueryError(
         `pull variable ${item[1]} is not an entity; bind it in an entity pattern position`,
       );
-    return db.pull(cell.value as bigint, item[2]);
+    const entity = cell.value as bigint;
+    return db._pullEntity(entity, item[2], 1, new Set([entity]), () =>
+      work.spend(),
+    );
   }
   throw new QueryError(
     "invalid non-aggregate find item; use a bound variable or ['pull', '?e', pattern]",
@@ -1060,7 +1068,12 @@ interface Projected {
   binding: Binding;
 }
 
-function project(db: Db, find: unknown[], bindings: Binding[]): Projected[] {
+function project(
+  db: Db,
+  find: unknown[],
+  bindings: Binding[],
+  work: WorkBudget,
+): Projected[] {
   const aggregatePositions = new Set(
     find.flatMap((item, index) =>
       Array.isArray(item) &&
@@ -1072,7 +1085,7 @@ function project(db: Db, find: unknown[], bindings: Binding[]): Projected[] {
   );
   if (aggregatePositions.size === 0)
     return bindings.map((binding) => ({
-      values: find.map((item) => findValue(db, item, binding)),
+      values: find.map((item) => findValue(db, item, binding, work)),
       binding,
     }));
   // validateFind rejects pull/aggregate mixtures before projection.
@@ -1100,7 +1113,7 @@ function project(db: Db, find: unknown[], bindings: Binding[]): Projected[] {
       values: find.map((item, index) =>
         aggregatePositions.has(index)
           ? aggregate(item as unknown[], rows)
-          : findValue(db, item, representative),
+          : findValue(db, item, representative, work),
       ),
       binding: representative,
     };
@@ -1180,7 +1193,7 @@ export function evaluate(
   const work = new WorkBudget(options);
   const relationValues = relations(db, definitions, work);
   const bindings = clauses(db, where, [initial], relationValues, work);
-  const projected = project(db, find, bindings);
+  const projected = project(db, find, bindings, work);
   const seen = new Set<string>();
   const distinct = projected.filter((row) => {
     const key = canonicalJson(row.values);

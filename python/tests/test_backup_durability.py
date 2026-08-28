@@ -89,3 +89,18 @@ def test_online_backup_allows_a_second_handle_to_commit_between_steps(tmp_path: 
     with fgraph.connect(target, read_only=True) as backup:
         assert backup.entity("backup/during") == {"item/value": "during"}
         assert backup.doctor()["ok"] is True
+
+
+def test_backup_refuses_reserved_application_attribute_corruption(tmp_path: Path) -> None:
+    source = tmp_path / "source.db"
+    target = tmp_path / "backup.db"
+    with fgraph.connect(source) as database:
+        database.transact({"id": "reserved/item", "reserved/value": 1})
+        database._connection.execute(  # noqa: SLF001
+            "UPDATE fgraph_ids SET name='fgraph/forged' WHERE name='reserved/value'"
+        )
+
+        with pytest.raises(fgraph.FormatError, match="backup failed verification"):
+            database.backup(target)
+
+    assert target.exists() is False

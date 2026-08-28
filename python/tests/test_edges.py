@@ -28,7 +28,7 @@ import fgraph.store as store
 from fgraph.jsonio import loads
 from fgraph.mcp_server import create_server, embed
 from fgraph.models import Result, SearchResult, TxReport
-from fgraph.query import _aggregate, _column, _compare, _find_value, _sort_key
+from fgraph.query import _aggregate, _column, _compare, _find_value, _sort_key, _WorkBudget
 from fgraph.search import _cosine
 from fgraph.values import (
     BLOB_THRESHOLD,
@@ -546,11 +546,11 @@ def test_query_helper_and_public_error_paths(db: fgraph.Db) -> None:
     with pytest.raises(fgraph.QueryError):
         _column(1)
     with pytest.raises(fgraph.QueryError):
-        _find_value(db, "?missing", {})
+        _find_value(db, "?missing", {}, _WorkBudget(100))
     with pytest.raises(fgraph.QueryError):
-        _find_value(db, ["pull", "?x", ["*"]], {"?x": Cell(INT, 1)})
+        _find_value(db, ["pull", "?x", ["*"]], {"?x": Cell(INT, 1)}, _WorkBudget(100))
     with pytest.raises(fgraph.QueryError):
-        _find_value(db, 1, {})
+        _find_value(db, 1, {}, _WorkBudget(100))
     with pytest.raises(fgraph.QueryError):
         _aggregate(["sum"], [])
     assert _aggregate(["sum", "?x"], []) is None

@@ -340,10 +340,31 @@ describe("MCP server", () => {
 
       const templates = await client.request("resources/templates/list", {});
       expect(
-        (templates.resourceTemplates as Array<{ name: string }>).map(
-          (template) => template.name,
-        ),
-      ).toEqual(["schema", "entity", "transaction", "changes", "event"]);
+        (
+          templates.resourceTemplates as Array<{
+            name: string;
+            uriTemplate: string;
+          }>
+        ).map(({ name, uriTemplate }) => ({ name, uriTemplate })),
+      ).toEqual([
+        {
+          name: "schema",
+          uriTemplate: "fgraph://schema{?prefix,cursor}",
+        },
+        {
+          name: "entity",
+          uriTemplate: "fgraph://entity/{selector}{?at,cursor}",
+        },
+        { name: "transaction", uriTemplate: "fgraph://tx/{tx}" },
+        {
+          name: "changes",
+          uriTemplate: "fgraph://changes{?since,cursor}",
+        },
+        {
+          name: "event",
+          uriTemplate: "fgraph://event/{event}{?basis,offset,digest}",
+        },
+      ]);
       expect(
         resourceData(
           await client.request("resources/read", {

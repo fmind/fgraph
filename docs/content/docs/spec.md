@@ -342,7 +342,7 @@ The 4th/5th positions expose the event transaction and whether the datom was add
 
 Rules use `{ "head": ["name", "?arg"], "body": [...] }`. Direct self-recursion reaches a fixpoint; mutual recursion is unsupported. `find` accepts variables, `pull`, and aggregates `count`, `count-distinct`, `sum`, `avg`, `min`, and `max`. Pull cannot mix with aggregates. Unordered rows compare as multisets; a non-empty `order` is deterministic over rendered values.
 
-Queries spend deterministic work units and abort with `TooLarge` at the database budget or with `QueryError` on cancellation. `explain` validates without evaluation and reports basis/source plus one of these stable access labels per pattern: `eavt/exact`, `eavt/ea`, `avet`, `eavt/e`, `avet/a`, `value-scan`, or `scan`. Predicate/negation/rule barriers preserve semantic order.
+Queries spend deterministic work units and abort with `TooLarge` at the database budget or with `QueryError` on cancellation. Candidate evaluation charges every examined fact-binding pair, including duplicate bindings that reuse one batched fact; a query `pull` projection additionally charges every visible fact examined while materializing the pull, including nested and reverse results. Standalone `entity` and `pull` reads are outside the query budget. `explain` validates without evaluation and reports basis/source plus one of these stable access labels per pattern: `eavt/exact`, `eavt/ea`, `avet`, `eavt/e`, `avet/a`, `value-scan`, or `scan`. Predicate/negation/rule barriers preserve semantic order.
 
 ### 4.3 Datom index API
 

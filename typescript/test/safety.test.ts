@@ -101,6 +101,24 @@ describe("v1 resource-safety contract", () => {
     ]);
   });
 
+  it("charges projected pull facts to the active query work budget", () => {
+    using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
+    db.transact({
+      id: "pull/target",
+      "pull/name": "target",
+      "pull/enabled": true,
+    });
+    const query = {
+      find: [["pull", "?entity", ["*"]]],
+      where: [["?entity", "pull/name", "target"]],
+    };
+
+    expect(db.q(query, {}, { budget: 3 }).rows).toEqual([
+      [{ "pull/enabled": true, "pull/name": "target" }],
+    ]);
+    expect(() => db.q(query, {}, { budget: 2 })).toThrowError(TooLarge);
+  });
+
   it("deduplicates wildcard bindings between patterns without changing work accounting", () => {
     using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
     db.declare("item/tag", { many: true });

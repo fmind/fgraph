@@ -434,7 +434,7 @@ def _validate_find(db: Any, find: Sequence[Any]) -> None:
             has_aggregate = True
             continue
         if isinstance(item, list) and len(item) == 3 and item[0] == "pull" and _is_variable(item[1]):
-            db._validate_pull_pattern(item[2])  # noqa: SLF001
+            db._validate_pull_pattern(item[2], check_references=False)  # noqa: SLF001
             has_pull = True
             continue
         raise QueryError(f"invalid find item {item!r}; use a variable, aggregate, or ['pull', '?e', pattern]")
@@ -684,7 +684,7 @@ def _sort_key(value: Any) -> tuple[int, Any]:
     return 3, _canonical_json_document(value)
 
 
-def _find_value(db: Any, item: Any, binding: Binding) -> Any:
+def _find_value(db: Any, item: Any, binding: Binding, work: _WorkBudget) -> Any:
     if isinstance(item, str) and _is_variable(item):
         if item not in binding:
             raise QueryError(f"find variable {item!r} is unbound; add a matching where clause")
@@ -693,7 +693,7 @@ def _find_value(db: Any, item: Any, binding: Binding) -> Any:
         variable = item[1]
         if variable not in binding or binding[variable].tag != REF:
             raise QueryError(f"pull variable {variable!r} is not an entity; bind it in an entity pattern position")
-        return db.pull(binding[variable].value, item[2])
+        return db._query_pull(binding[variable].value, item[2], work.spend)  # noqa: SLF001
     raise QueryError(f"invalid non-aggregate find item {item!r}; use a bound variable or ['pull', '?e', pattern]")
 
 
@@ -736,14 +736,19 @@ def _aggregate(item: list[Any], rows: Sequence[Binding]) -> Any:
     return average
 
 
-def _project(db: Any, find: Sequence[Any], bindings: Sequence[Binding]) -> list[dict[str, Any]]:
+def _project(
+    db: Any,
+    find: Sequence[Any],
+    bindings: Sequence[Binding],
+    work: _WorkBudget,
+) -> list[dict[str, Any]]:
     aggregate_positions = {
         index for index, item in enumerate(find) if isinstance(item, list) and item and item[0] in AGGREGATES
     }
     projected: list[dict[str, Any]] = []
     if not aggregate_positions:
         for binding in bindings:
-            values = [_find_value(db, item, binding) for item in find]
+            values = [_find_value(db, item, binding, work) for item in find]
             projected.append({"values": values, "binding": binding})
         return projected
     if any(isinstance(item, list) and item and item[0] == "pull" for item in find):
@@ -759,7 +764,7 @@ def _project(db: Any, find: Sequence[Any], bindings: Sequence[Binding]) -> list[
     for rows in groups.values():
         representative = rows[0] if rows else {}
         values = [
-            _aggregate(item, rows) if index in aggregate_positions else _find_value(db, item, representative)
+            _aggregate(item, rows) if index in aggregate_positions else _find_value(db, item, representative, work)
             for index, item in enumerate(find)
         ]
         projected.append({"values": values, "binding": representative})
@@ -902,7 +907,7 @@ def evaluate(db: Any, query: Mapping[str, Any], args: Mapping[str, Any]) -> Resu
     work = _WorkBudget(db._query_budget)  # noqa: SLF001
     relations = _relations(db, definitions, work, source)
     bindings = _clauses(db, where, [initial], relations, work, source)
-    projected = _project(db, find, bindings)
+    projected = _project(db, find, bindings, work)
     seen: set[str] = set()
     distinct: list[dict[str, Any]] = []
     for row in projected:

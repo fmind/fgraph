@@ -237,6 +237,39 @@ def test_query_budget_is_connection_scoped_and_counts_candidate_pairs() -> None:
             graph.q(query)
 
 
+def test_query_pull_projection_consumes_active_work_budget() -> None:
+    query = {
+        "find": [["pull", "?entity", ["*"]]],
+        "where": [["?entity", "pull/name", "target"]],
+    }
+    with fgraph.connect(":memory:", query_budget=2) as graph:
+        graph.transact({"id": "pull/target", "pull/name": "target", "pull/enabled": True})
+
+        with pytest.raises(fgraph.TooLarge, match="work budget"):
+            graph.q(query)
+
+    with fgraph.connect(":memory:", query_budget=3) as graph:
+        graph.transact({"id": "pull/target", "pull/name": "target", "pull/enabled": True})
+
+        assert graph.q(query).rows == [[{"pull/enabled": True, "pull/name": "target"}]]
+
+
+def test_query_nested_pull_projection_consumes_active_work_budget() -> None:
+    with fgraph.connect(":memory:", query_budget=3) as graph:
+        graph.declare("pull/child", ref=True)
+        graph.transact(
+            [
+                {"id": "pull/root", "pull/match": "root", "pull/child": {"ref": "pull/leaf"}},
+                {"id": "pull/leaf", "pull/name": "leaf"},
+            ]
+        )
+        where = [["?entity", "pull/match", "root"]]
+
+        assert graph.q(find=[["pull", "?entity", ["pull/match"]]], where=where).rows == [[{"pull/match": "root"}]]
+        with pytest.raises(fgraph.TooLarge, match="work budget"):
+            graph.q(find=[["pull", "?entity", [{"pull/child": ["*"]}]]], where=where)
+
+
 def test_query_budget_bounds_general_candidate_cursor_consumption(monkeypatch: pytest.MonkeyPatch) -> None:
     with fgraph.connect(":memory:", query_budget=1) as graph:
         graph.transact([{"id": f"item/{index}", "item/value": index} for index in range(3)])
