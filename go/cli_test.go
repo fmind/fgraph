@@ -417,11 +417,14 @@ func TestCLITailFollowStreamsExportRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// Cancel from observed output instead of racing a fixed deadline against
+	// record export under the race detector.
 	var output bytes.Buffer
-	err = RunCLI(ctx, []string{"fgraph", "tail", "--db", path, "--json", "--since", strconv.FormatInt(GenesisTx, 10), "--follow"}, strings.NewReader(""), &output, &output)
-	if !errors.Is(err, context.DeadlineExceeded) {
+	writer := cancelAfterLinesWriter{output: &output, cancel: cancel, remaining: 2}
+	err = RunCLI(ctx, []string{"fgraph", "tail", "--db", path, "--json", "--since", strconv.FormatInt(GenesisTx, 10), "--follow"}, strings.NewReader(""), &writer, &bytes.Buffer{})
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("tail error = %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
@@ -444,4 +447,19 @@ func TestCLITailFollowStreamsExportRecords(t *testing.T) {
 			t.Fatalf("tail asserted missing: %s", lines[i])
 		}
 	}
+}
+
+type cancelAfterLinesWriter struct {
+	output    *bytes.Buffer
+	cancel    context.CancelFunc
+	remaining int
+}
+
+func (writer *cancelAfterLinesWriter) Write(data []byte) (int, error) {
+	written, err := writer.output.Write(data)
+	writer.remaining -= bytes.Count(data[:written], []byte{'\n'})
+	if writer.remaining <= 0 {
+		writer.cancel()
+	}
+	return written, err
 }
