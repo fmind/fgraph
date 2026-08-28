@@ -1,0 +1,21 @@
+{
+  "fgraph": "portable-boundaries/1",
+  "unicode_value": "beforemiddle after done",
+  "invalid_json": [
+    {
+      "name": "lone high surrogate",
+      "wire": "{\"id\":\"unicode/high\",\"unicode/value\":\"\\ud800\"}",
+      "error": "TypeError"
+    },
+    {
+      "name": "lone low surrogate",
+      "wire": "{\"id\":\"unicode/low\",\"unicode/value\":\"\\udc00\"}",
+      "error": "TypeError"
+    }
+  ],
+  "snapshot_mutations": [
+    { "name": "receipt_created_mismatch", "error": "Conflict" },
+    { "name": "anonymous_attribute", "error": "TypeError" },
+    { "name": "operation_id_control", "error": "TypeError" }
+  ]
+}

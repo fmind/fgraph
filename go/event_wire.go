@@ -74,20 +74,44 @@ func (db *DB) Tail(ctx context.Context, writer io.Writer, since int64) error {
 	if writer == nil {
 		return fail(ErrType, "tail writer is nil; provide an io.Writer")
 	}
-	records, err := db.EventRecords(ctx, since)
-	if err != nil {
-		return err
+	if since < GenesisTx {
+		return fail(ErrType, "event cursor %d is invalid; use a transaction id at least %d", since, GenesisTx)
 	}
-	for _, record := range records {
-		line, err := canonicalJSON(record)
+	return db.withRead(ctx, func(runner sqlRunner) (resultErr error) {
+		basis, err := db.basisOn(ctx, runner)
 		if err != nil {
 			return err
 		}
-		if err := writeFull(writer, append(line, '\n')); err != nil {
-			return wrap(ErrFormat, err, "cannot write event/1 record")
+		if db.asOf != nil && *db.asOf < basis {
+			basis = *db.asOf
 		}
-	}
-	return nil
+		rows, err := runner.QueryContext(ctx, "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx", since, basis)
+		if err != nil {
+			return wrap(ErrFormat, err, "cannot read event records after %d through %d", since, basis)
+		}
+		defer func() { resultErr = joinErrors(resultErr, wrapClose(rows.Close(), "tail transaction rows")) }()
+		for rows.Next() {
+			var tx int64
+			if err := rows.Scan(&tx); err != nil {
+				return wrap(ErrFormat, err, "cannot decode an event transaction after %d", since)
+			}
+			record, err := db.eventRecordForTxOn(ctx, runner, tx)
+			if err != nil {
+				return err
+			}
+			line, err := canonicalJSON(record)
+			if err != nil {
+				return err
+			}
+			if err := writeFull(writer, append(line, '\n')); err != nil {
+				return wrap(ErrFormat, err, "cannot write event/1 record")
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return wrap(ErrFormat, err, "cannot finish event records after %d", since)
+		}
+		return nil
+	})
 }
 
 func (db *DB) eventRecordForTx(ctx context.Context, tx int64) (map[string]any, error) {
@@ -96,19 +120,23 @@ func (db *DB) eventRecordForTx(ctx context.Context, tx int64) (map[string]any, e
 	}
 	var record map[string]any
 	err := db.withRead(ctx, func(runner sqlRunner) error {
-		var at int64
-		if err := runner.QueryRowContext(ctx, "SELECT v FROM fgraph_facts WHERE e=? AND a=1 AND tx=e AND rx IS NULL", tx).Scan(&at); err != nil {
-			return wrap(ErrNotFound, err, "transaction %d does not exist; use a committed transaction id", tx)
-		}
 		var err error
-		record, err = db.exportTransaction(ctx, runner, tx, at)
-		if err != nil {
-			return err
-		}
-		record, err = db.validateEventRecord(ctx, runner, tx, record)
+		record, err = db.eventRecordForTxOn(ctx, runner, tx)
 		return err
 	})
 	return record, err
+}
+
+func (db *DB) eventRecordForTxOn(ctx context.Context, runner sqlRunner, tx int64) (map[string]any, error) {
+	var at int64
+	if err := runner.QueryRowContext(ctx, "SELECT v FROM fgraph_facts WHERE e=? AND a=1 AND tx=e AND rx IS NULL", tx).Scan(&at); err != nil {
+		return nil, wrap(ErrNotFound, err, "transaction %d does not exist; use a committed transaction id", tx)
+	}
+	record, err := db.exportTransaction(ctx, runner, tx, at)
+	if err != nil {
+		return nil, err
+	}
+	return db.validateEventRecord(ctx, runner, tx, record)
 }
 
 func (db *DB) validateEventRecord(ctx context.Context, runner sqlRunner, tx int64, record map[string]any) (map[string]any, error) {

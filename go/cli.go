@@ -994,6 +994,9 @@ func commandEmbedder(command string) Embedder {
 		// #nosec G204 -- the user explicitly configures an executable and arguments;
 		// CommandContext never invokes a shell, so input text cannot alter the command.
 		cmd := exec.CommandContext(runCtx, parts[0], parts[1:]...)
+		// A descendant may inherit stdout after the configured process exits;
+		// bound pipe cleanup so that it cannot outlive the command timeout.
+		cmd.WaitDelay = 100 * time.Millisecond
 		cmd.Stdin = strings.NewReader(text)
 		output := &limitedCommandOutput{limit: 1 << 20}
 		cmd.Stdout = output

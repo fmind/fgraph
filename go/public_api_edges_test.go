@@ -152,12 +152,6 @@ func TestQueryValidationPropagatesNestedClauseErrors(t *testing.T) {
 		t.Fatalf("nested or validation error = %v", err)
 	}
 
-	if got := queryNeedsMaterializedFacts([]any{[]any{"pull", "?entity", []any{"*"}}}); !got {
-		t.Fatal("pull query did not request materialized facts")
-	}
-	if got := queryNeedsMaterializedFacts([]any{"?entity"}); got {
-		t.Fatal("scalar query unexpectedly requested materialized facts")
-	}
 	if !reflect.DeepEqual(initialBindingNames([]binding{{"?x": {}}, {"?x": {}}}), map[string]bool{"?x": true}) {
 		t.Fatal("shared query input binding was not retained")
 	}

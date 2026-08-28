@@ -1,6 +1,7 @@
 package fgraph
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -32,6 +33,56 @@ func TestExactMCPArguments(t *testing.T) {
 		request.Params.Arguments = json.RawMessage(raw)
 		if _, err := exactMCPArguments(request); !errors.Is(err, ErrType) {
 			t.Fatalf("arguments %q error = %v, want TypeError", raw, err)
+		}
+	}
+}
+
+func TestMCPDatomsPreservesInt64Components(t *testing.T) {
+	ctx := context.Background()
+	db := fixedDB(t, ":memory:")
+	for entity, value := range map[string]int64{
+		"mcp/min-int": math.MinInt64,
+		"mcp/max-int": math.MaxInt64,
+	} {
+		if _, err := db.Transact(ctx, E{"id": entity, "mcp/integer": value}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := NewMCPServer(db, MCPOptions{ReadOnly: true})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeTest(t, serverSession)
+	client := mcp.NewClient(&mcp.Implementation{Name: "integer-boundary", Version: "1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeTest(t, clientSession)
+
+	for entity, value := range map[string]int64{
+		"mcp/min-int": math.MinInt64,
+		"mcp/max-int": math.MaxInt64,
+	} {
+		result, callErr := clientSession.CallTool(ctx, &mcp.CallToolParams{
+			Name: "datoms", Arguments: map[string]any{
+				"index": "avet", "components": []any{"mcp/integer", value},
+			},
+		})
+		if callErr != nil || result.IsError {
+			t.Fatalf("datoms(%d) = %#v, %v", value, result, callErr)
+		}
+		var page struct {
+			Items []struct {
+				Entity string `json:"e"`
+			} `json:"items"`
+		}
+		decodeMCPData(t, result, &page)
+		if len(page.Items) != 1 || page.Items[0].Entity != entity {
+			t.Fatalf("datoms(%d) items = %#v, want %s", value, page.Items, entity)
 		}
 	}
 }

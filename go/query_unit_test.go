@@ -262,11 +262,7 @@ func TestQueryInternalBranchMatrix(t *testing.T) {
 	}
 	var evaluator *queryEvaluator
 	if err := db.withRead(ctx, func(runner sqlRunner) error {
-		facts, err := db.queryFacts(ctx, runner)
-		if err != nil {
-			return err
-		}
-		evaluator = &queryEvaluator{db: db, ctx: ctx, runner: runner, facts: facts, relations: map[string][][]cell{}, rules: map[string][]ruleDef{}}
+		evaluator = &queryEvaluator{db: db, ctx: ctx, runner: runner, relations: map[string][][]cell{}, rules: map[string][]ruleDef{}}
 		for _, value := range []any{
 			true, int64(1), float64(1.5), "text", Instant(1), Bytes([]byte{1}), Vector([]float32{1}), JSON(E{"x": 1}),
 			RefTo("a"), RefTo("missing"), RefTo(db.store.names["a"]), RefTo(int(db.store.names["a"])),
@@ -458,5 +454,40 @@ func TestUndeclaredAttributeConstantsUseValueIndex(t *testing.T) {
 	}
 	if len(result.Rows) != 1 || fmt.Sprint(result.Rows[0][0]) != "map[ref:item/77]" {
 		t.Fatalf("indexed result = %#v", result.Rows)
+	}
+}
+
+func TestPullQueryStreamsTargetFactsAndChargesWork(t *testing.T) {
+	ctx := context.Background()
+	db, openErr := Open(":memory:", WithClock(func() int64 { return 1_767_225_600_000_000 }), WithQueryBudget(3))
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	t.Cleanup(func() { closeTest(t, db) })
+	if _, declareErr := db.Declare(ctx, "unrelated/count", Type("int")); declareErr != nil {
+		t.Fatal(declareErr)
+	}
+	if _, transactErr := db.Transact(ctx, E{"id": "unrelated", "unrelated/count": int64(1)}); transactErr != nil {
+		t.Fatal(transactErr)
+	}
+	if _, transactErr := db.Transact(ctx, E{"id": "pull/target", "pull/name": "target", "pull/enabled": true}); transactErr != nil {
+		t.Fatal(transactErr)
+	}
+	if _, execErr := db.store.sql.ExecContext(ctx, `UPDATE fgraph_facts SET v='corrupt' WHERE a=(SELECT id FROM fgraph_ids WHERE name='unrelated/count')`); execErr != nil {
+		t.Fatal(execErr)
+	}
+
+	query := Q{
+		Find:  []any{[]any{"pull", "?entity", []any{"*"}}},
+		Where: []any{[]any{"?entity", "pull/name", "target"}},
+	}
+	result, queryErr := db.Query(ctx, query, nil)
+	if queryErr != nil || len(result.Rows) != 1 {
+		t.Fatalf("targeted pull = %#v, %v", result, queryErr)
+	}
+
+	db.store.queryBudget = 2 // One candidate plus two projected facts needs three work units.
+	if _, budgetErr := db.Query(ctx, query, nil); !errors.Is(budgetErr, ErrTooLarge) {
+		t.Fatalf("pull work budget error = %v, want TooLarge", budgetErr)
 	}
 }

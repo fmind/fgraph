@@ -90,6 +90,7 @@ export const GENESIS_TX = 64n;
 export const FIRST_USER_ID = 65n;
 export const DEFAULT_QUERY_BUDGET = 100_000;
 export const MAX_EVENT_BYTES = 8 * MAX_VALUE_BYTES + 64 * 1024;
+export const MAX_SNAPSHOT_LINE_BYTES = 2 * MAX_EVENT_BYTES + 64 * 1024;
 const MAX_CURSOR_BYTES = 4096;
 const IMPORTED_AT_ATTRIBUTE = 13n;
 const IMPORTED_AT_NAME = "fgraph/imported-at";
@@ -520,6 +521,14 @@ function canonicalEventData(record: Record<string, unknown>): string {
       `canonical event is ${size} bytes; keep one transaction at or below ${MAX_EVENT_BYTES} portable bytes`,
     );
   return data;
+}
+
+function validateSnapshotLineSize(line: string): void {
+  const size = Buffer.byteLength(line, "utf8");
+  if (size > MAX_SNAPSHOT_LINE_BYTES)
+    throw new TooLarge(
+      `portable snapshot record is ${size} bytes; keep it at or below ${MAX_SNAPSHOT_LINE_BYTES} bytes`,
+    );
 }
 
 function eventHash(data: string): Buffer {
@@ -3313,13 +3322,13 @@ export class Db implements Disposable {
       .all(...values);
   }
 
-  _queryDatoms(
+  *_queryDatoms(
     entity: bigint | null,
     attribute: bigint | null,
     value: Cell | null = null,
     eventTransaction: bigint | null = null,
     added: boolean | null = null,
-  ): QueryDatom[] {
+  ): Generator<QueryDatom> {
     this.#ensureOpen();
     const basis = this._asOf ?? this.#latestBasis();
     const conditions: string[] = [];
@@ -3342,7 +3351,7 @@ export class Db implements Disposable {
       parameters.push(encoded.tag, encoded.stored);
     }
     if (this._querySource === "current") {
-      if (added === false) return [];
+      if (added === false) return;
       if (eventTransaction !== null) {
         conditions.push("tx=?");
         parameters.push(eventTransaction);
@@ -3374,29 +3383,36 @@ export class Db implements Disposable {
       .prepare<unknown[], RawRow>(
         `SELECT * FROM fgraph_facts WHERE ${conditions.join(" AND ")} ORDER BY id`,
       )
-      .all(...parameters);
-    if (this._querySource === "current")
-      return rows.map((row) => ({ row, eventTx: row.tx, added: true }));
-    return rows.flatMap((row) => {
+      .iterate(...parameters);
+    for (const row of rows) {
+      if (this._querySource === "current") {
+        yield { row, eventTx: row.tx, added: true };
+        continue;
+      }
       const events: QueryDatom[] = [{ row, eventTx: row.tx, added: true }];
       if (row.rx !== null && row.rx <= basis)
         events.push({ row, eventTx: row.rx, added: false });
-      return events.filter(
-        (event) =>
+      for (const event of events)
+        if (
           (eventTransaction === null || event.eventTx === eventTransaction) &&
-          (added === null || event.added === added),
-      );
-    });
+          (added === null || event.added === added)
+        )
+          yield event;
+    }
   }
 
   _queryDatomsForEntities(
     entities: bigint[],
     attribute: bigint,
+    spend: () => void,
   ): Map<bigint, QueryDatom[]> | null {
     if (this._querySource !== "current") return null;
     const basis = this._asOf ?? this.#latestBasis();
     const visibility = this._visibility(basis);
     const result = new Map<bigint, QueryDatom[]>();
+    const multiplicity = new Map<bigint, number>();
+    for (const entity of entities)
+      multiplicity.set(entity, (multiplicity.get(entity) ?? 0) + 1);
     const unique = [...new Set(entities)].sort((left, right) =>
       left < right ? -1 : left > right ? 1 : 0,
     );
@@ -3407,8 +3423,11 @@ export class Db implements Disposable {
         .prepare<unknown[], RawRow>(
           `SELECT * FROM fgraph_facts WHERE a=? AND e IN (${placeholders}) AND ${visibility.sql} ORDER BY id`,
         )
-        .all(attribute, ...chunk, ...visibility.params);
+        .iterate(attribute, ...chunk, ...visibility.params);
       for (const row of rows) {
+        // One physical row is still evaluated once for every incoming binding.
+        for (let count = multiplicity.get(row.e) ?? 0; count > 0; count--)
+          spend();
         const items = result.get(row.e) ?? [];
         items.push({ row, eventTx: row.tx, added: true });
         result.set(row.e, items);
@@ -4196,7 +4215,7 @@ export class Db implements Disposable {
           .prepare<[bigint, bigint], { tx: bigint }>(
             "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx",
           )
-          .all(cursor, latest);
+          .iterate(cursor, latest);
         for (const row of rows) {
           if (options.signal?.aborted) return;
           yield this.#eventRecordForTx(row.tx);
@@ -5262,6 +5281,20 @@ export class Db implements Disposable {
       fatal.push(
         `facts reference missing identities: ${missingIdentityReferences}`,
       );
+    const factAttributes = this._connection
+      .prepare<[], { name: string | null }>(
+        "SELECT DISTINCT i.name FROM fgraph_facts f LEFT JOIN fgraph_ids i ON i.id=f.a",
+      )
+      .all();
+    const invalidFactAttributes = factAttributes.filter(
+      ({ name }) =>
+        name === null ||
+        !ATTRIBUTE_PATTERN.test(name) ||
+        (name.startsWith("fgraph/") &&
+          !SYSTEM_NAMES.some((systemName) => systemName === name)),
+    ).length;
+    if (invalidFactAttributes > 0)
+      fatal.push(`invalid fact attributes: ${invalidFactAttributes}`);
     const futureIdentityReferences = scalar(
       "SELECT count(*) value FROM fgraph_facts f " +
         "JOIN fgraph_ids ie ON ie.id=f.e " +
@@ -5321,14 +5354,25 @@ export class Db implements Disposable {
     );
     if (receiptWithoutEvent > 0)
       fatal.push(`transaction receipts without events: ${receiptWithoutEvent}`);
-    const malformedEvents = scalar(
+    let malformedEvents = scalar(
       "SELECT count(*) value FROM fgraph_events WHERE " +
         "typeof(event_hash)<>'blob' OR length(event_hash)<>32 OR " +
         "(event_data IS NOT NULL AND typeof(event_data)<>'text') OR " +
         "((operation_id IS NULL)<>(request_hash IS NULL)) OR " +
-        "(request_hash IS NOT NULL AND (typeof(request_hash)<>'blob' OR length(request_hash)<>32)) OR " +
-        "(operation_id IS NOT NULL AND (length(CAST(operation_id AS BLOB))<1 OR length(CAST(operation_id AS BLOB))>512))",
+        "(request_hash IS NOT NULL AND (typeof(request_hash)<>'blob' OR length(request_hash)<>32))",
     );
+    const operationIds = this._connection
+      .prepare<[], { operation_id: string }>(
+        "SELECT operation_id FROM fgraph_events WHERE operation_id IS NOT NULL",
+      )
+      .all();
+    for (const { operation_id: operationId } of operationIds) {
+      try {
+        this.#validateOperationId(operationId);
+      } catch {
+        malformedEvents++;
+      }
+    }
     if (malformedEvents > 0)
       fatal.push(`malformed event receipts: ${malformedEvents}`);
     const excisionTransactions = new Set(
@@ -5779,15 +5823,31 @@ export class Db implements Disposable {
     since: number | bigint = GENESIS_TX,
     writer?: { write(value: string): unknown },
   ): string | void {
-    const output = this.eventRecords(since)
-      .map((record) => canonicalJson(record))
-      .join("\n");
-    const text = output === "" ? "" : `${output}\n`;
+    this.#ensureOpen();
+    const after = asBigInt(since, "event cursor");
+    if (after < GENESIS_TX)
+      throw new TypeError(
+        `event cursor ${after} is invalid; use a transaction id at least ${GENESIS_TX}`,
+      );
+    const end = this._asOf ?? this.#latestBasis();
+    const rows = this._connection
+      .prepare<[bigint, bigint], { tx: bigint }>(
+        "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx",
+      )
+      .iterate(after, end);
+    let output = "";
+    let wrote = false;
+    for (const row of rows) {
+      const line = `${canonicalJson(this.#eventRecordForTx(row.tx))}\n`;
+      if (writer === undefined) output += line;
+      else writer.write(line);
+      wrote = true;
+    }
     if (writer !== undefined) {
-      writer.write(text);
+      if (!wrote) writer.write("");
       return;
     }
-    return text;
+    return output;
   }
 
   #applySelector(
@@ -5866,11 +5926,9 @@ export class Db implements Disposable {
         ? (function* eventLines(): Generator<string> {
             let start = 0;
             for (let newline = source.indexOf("\n"); newline >= 0;) {
-              const end =
-                newline > start && source[newline - 1] === "\r"
-                  ? newline - 1
-                  : newline;
-              yield source.slice(start, end);
+              // LF is the delimiter; a preceding CR remains JSON whitespace
+              // and therefore counts toward the portable record byte cap.
+              yield source.slice(start, newline);
               start = newline + 1;
               newline = source.indexOf("\n", start);
             }
@@ -6080,7 +6138,9 @@ export class Db implements Disposable {
         throw new FormatError("snapshot cannot read fgraph_meta.created_at");
       const streamDigest = createHash("sha256");
       const emit = (record: Record<string, unknown>): string => {
-        const line = `${canonicalJson(record)}\n`;
+        const body = canonicalJson(record);
+        validateSnapshotLineSize(body);
+        const line = `${body}\n`;
         streamDigest.update(line, "utf8");
         return line;
       };
@@ -6152,12 +6212,14 @@ export class Db implements Disposable {
           ],
         });
       }
-      yield `${canonicalJson({
+      const footer = canonicalJson({
         fgraph: "end",
         sha256: streamDigest.digest("hex"),
         receipts: receiptCount,
         facts: factCount,
-      })}\n`;
+      });
+      validateSnapshotLineSize(footer);
+      yield `${footer}\n`;
       this.#finishRead(read.owned, true);
     } finally {
       this.#finishRead(read.owned, false);
@@ -6188,71 +6250,52 @@ export class Db implements Disposable {
 
   restore(source: string | Iterable<string>): void {
     this.#ensureWritable();
-    const rawLines =
-      typeof source === "string" ? source.split(/\r?\n/u) : [...source];
-    const lines = rawLines.filter((line) => line.trim() !== "");
-    if (lines.length < 2)
+    const rawLines: Iterable<string> =
+      typeof source === "string"
+        ? (function* snapshotInputLines(): Generator<string> {
+            let start = 0;
+            for (let newline = source.indexOf("\n"); newline >= 0;) {
+              // LF is the delimiter; a preceding CR remains JSON whitespace
+              // and therefore counts toward the portable record byte cap.
+              yield source.slice(start, newline);
+              start = newline + 1;
+              newline = source.indexOf("\n", start);
+            }
+            yield source.slice(start);
+          })()
+        : source;
+    function* records(): Generator<[number, unknown]> {
+      let lineNumber = 0;
+      for (const raw of rawLines) {
+        validateSnapshotLineSize(raw);
+        if (raw.trim() === "") continue;
+        lineNumber++;
+        yield [lineNumber, parseJson(raw, `snapshot line ${lineNumber}`)];
+      }
+    }
+    const stream = records();
+    const first = stream.next();
+    if (first.done)
       throw new TypeError(
         "snapshot is truncated; header and footer are required",
       );
-    const parsed = lines.map((line, index) =>
-      parseJson(line, `snapshot line ${index + 1}`),
-    );
-    const header = parsed[0];
-    const footer = parsed.at(-1);
+    const header = first.value[1];
     if (
       !isRecord(header) ||
       header.fgraph !== "snapshot/1" ||
-      header.format !== FORMAT_VERSION ||
-      !isRecord(footer) ||
-      footer.fgraph !== "end" ||
-      typeof footer.sha256 !== "string"
+      header.format !== FORMAT_VERSION
     )
       throw new TypeError(
         "snapshot header/footer is invalid or targets another format version",
       );
-    const canonicalBody = parsed
-      .slice(0, -1)
-      .map((record) => canonicalJson(record));
-    const expectedDigest = createHash("sha256")
-      .update(`${canonicalBody.join("\n")}\n`, "utf8")
-      .digest("hex");
-    if (footer.sha256 !== expectedDigest)
-      throw new Conflict(
-        "snapshot digest does not match its body; reject the truncated or modified stream",
-      );
+    const createdAt = instantValue(header.created_at);
+    const streamDigest = createHash("sha256");
+    streamDigest.update(`${canonicalJson(header)}\n`, "utf8");
     this.#atomic(() => {
       if (this.#latestBasis() !== GENESIS_TX)
         throw new Conflict(
           "restore requires a pristine database; use apply for an ordered event stream",
         );
-      const body = parsed.slice(1, -1) as unknown[];
-      const receipts = body
-        .filter(
-          (record) => isRecord(record) && Object.hasOwn(record, "receipt"),
-        )
-        .map((record) => record as Record<string, unknown>);
-      const factRecords = body
-        .filter((record) => isRecord(record) && Object.hasOwn(record, "fact"))
-        .map((record) => record as Record<string, unknown>);
-      if (
-        receipts.length !== Number(footer.receipts) ||
-        factRecords.length !== Number(footer.facts) ||
-        receipts.length + factRecords.length !== parsed.length - 2
-      )
-        throw new TypeError(
-          "snapshot footer counts or record kinds do not match the body",
-        );
-      const expectedBasis =
-        receipts.length === 0
-          ? GENESIS_EVENT
-          : (receipts.at(-1)?.receipt as Record<string, unknown> | undefined)
-              ?.event;
-      if (header.basis !== expectedBasis)
-        throw new Conflict(
-          "snapshot header basis does not match its final transaction receipt",
-        );
-      const createdAt = instantValue(header.created_at);
       this._connection
         .prepare("UPDATE fgraph_meta SET value=? WHERE key='created_at'")
         .run(createdAt);
@@ -6276,10 +6319,11 @@ export class Db implements Disposable {
         identities.set(this.#snapshotSelectorKey(selector), row.id);
       }
       const events = new Map<string, bigint>();
+      const receiptMetadata = new Map<bigint, [bigint, bigint]>();
       const insertIdentity = this._connection.prepare(
         "INSERT INTO fgraph_ids(id,name,gid,created_tx) VALUES (?,?,?,?)",
       );
-      for (const wrapper of receipts) {
+      const restoreReceipt = (wrapper: Record<string, unknown>): string => {
         const receipt = wrapper.receipt;
         if (
           !isRecord(receipt) ||
@@ -6290,32 +6334,16 @@ export class Db implements Disposable {
         const eventText = uuidText(uuidBytes(receipt.event));
         if (events.has(eventText))
           throw new Conflict(`snapshot repeats event ${eventText}`);
-        const reserved: Array<[unknown, bigint]> = [];
-        for (const selector of receipt.created) {
-          const key = this.#snapshotSelectorKey(selector);
-          if (identities.has(key))
-            throw new Conflict(`snapshot repeats identity ${key}`);
-          reserved.push([selector, next++]);
-        }
-        const transaction = next++;
-        for (const [selector, id] of reserved) {
-          if (typeof selector === "string")
-            insertIdentity.run(id, selector, null, transaction);
-          else {
-            const eid = (selector as { eid?: unknown }).eid;
-            if (typeof eid !== "string")
-              throw new TypeError("snapshot EID selector is malformed");
-            insertIdentity.run(id, null, uuidBytes(eid), transaction);
-          }
-          identities.set(this.#snapshotSelectorKey(selector), id);
-        }
-        const eventBytes = uuidBytes(eventText);
-        insertIdentity.run(transaction, null, eventBytes, transaction);
-        identities.set(
-          this.#snapshotSelectorKey({ eid: eventText }),
-          transaction,
-        );
-        events.set(eventText, transaction);
+        if (
+          (typeof receipt.at !== "number" && typeof receipt.at !== "bigint") ||
+          (typeof receipt.origin_at !== "number" &&
+            typeof receipt.origin_at !== "bigint")
+        )
+          throw new TypeError(
+            "snapshot receipt at and origin_at must be integer microseconds",
+          );
+        const at = instantValue(receipt.at);
+        const originAt = instantValue(receipt.origin_at);
         if (
           typeof receipt.event_hash !== "string" ||
           !/^[0-9a-f]{64}$/u.test(receipt.event_hash)
@@ -6329,10 +6357,19 @@ export class Db implements Disposable {
         else if (
           isRecord(receipt.event_data) &&
           receipt.event_data.fgraph === "event/1" &&
-          receipt.event_data.event === eventText
-        )
+          receipt.event_data.event === eventText &&
+          Array.isArray(receipt.event_data.created)
+        ) {
           eventData = canonicalEventData(receipt.event_data);
-        else
+          if (
+            instantValue(receipt.event_data.at) !== originAt ||
+            canonicalJson(receipt.event_data.created) !==
+              canonicalJson(receipt.created)
+          )
+            throw new Conflict(
+              "snapshot receipt identity, origin timestamp, or created identities disagree with event_data",
+            );
+        } else
           throw new TypeError(
             "snapshot receipt event_data must be its canonical event/1 object or null",
           );
@@ -6358,6 +6395,33 @@ export class Db implements Disposable {
           (operationId === null) !== (requestHash === null)
         )
           throw new TypeError("snapshot operation receipt is malformed");
+        this.#validateOperationId(operationId ?? undefined);
+        const reserved: Array<[unknown, bigint]> = [];
+        const reservedKeys = new Set<string>();
+        for (const selector of receipt.created) {
+          const key = this.#snapshotSelectorKey(selector);
+          if (identities.has(key) || reservedKeys.has(key))
+            throw new Conflict(`snapshot repeats identity ${key}`);
+          reservedKeys.add(key);
+          reserved.push([selector, next++]);
+        }
+        const transaction = next++;
+        for (const [selector, id] of reserved) {
+          if (typeof selector === "string")
+            insertIdentity.run(id, selector, null, transaction);
+          else {
+            const eid = (selector as { eid: string }).eid;
+            insertIdentity.run(id, null, uuidBytes(eid), transaction);
+          }
+          identities.set(this.#snapshotSelectorKey(selector), id);
+        }
+        const eventBytes = uuidBytes(eventText);
+        insertIdentity.run(transaction, null, eventBytes, transaction);
+        identities.set(
+          this.#snapshotSelectorKey({ eid: eventText }),
+          transaction,
+        );
+        events.set(eventText, transaction);
         this._connection
           .prepare(
             "INSERT INTO fgraph_events(tx,event_hash,event_data,operation_id,request_hash) VALUES (?,?,?,?,?)",
@@ -6369,14 +6433,16 @@ export class Db implements Disposable {
             operationId,
             requestHash,
           );
-      }
+        receiptMetadata.set(transaction, [at, originAt]);
+        return eventText;
+      };
       const resolveSelector = (selector: unknown): bigint => {
         const id = identities.get(this.#snapshotSelectorKey(selector));
         if (id === undefined)
           throw new NotFound("snapshot fact references an unknown identity");
         return id;
       };
-      for (const wrapper of factRecords) {
+      const restoreFact = (wrapper: Record<string, unknown>): void => {
         const tuple = wrapper.fact;
         if (
           !Array.isArray(tuple) ||
@@ -6387,6 +6453,11 @@ export class Db implements Disposable {
             "snapshot fact must be [e,a,v,tag,assert-event,retract-event]",
           );
         const entity = resolveSelector(tuple[0]);
+        if (typeof tuple[1] !== "string")
+          throw new TypeError(
+            "snapshot fact attribute must be a named selector",
+          );
+        this.#validateAttribute(tuple[1]);
         const attribute = resolveSelector(tuple[1]);
         if (typeof tuple[4] !== "string")
           throw new TypeError("snapshot assertion event must be a UUID");
@@ -6435,12 +6506,112 @@ export class Db implements Disposable {
             .prepare("DELETE FROM fgraph_fts WHERE rowid=?")
             .run(inserted.id);
         }
+      };
+
+      let footer: Record<string, unknown> | null = null;
+      let receiptCount = 0n;
+      let factCount = 0n;
+      let factsStarted = false;
+      let expectedBasis: unknown = GENESIS_EVENT;
+      let deferredError: unknown;
+      for (const [, record] of stream) {
+        if (footer !== null)
+          throw new TypeError(
+            "snapshot footer must be the final non-blank record",
+          );
+        if (isRecord(record) && record.fgraph === "end") {
+          footer = record;
+          continue;
+        }
+        streamDigest.update(`${canonicalJson(record)}\n`, "utf8");
+        const hasReceipt = isRecord(record) && Object.hasOwn(record, "receipt");
+        const hasFact = isRecord(record) && Object.hasOwn(record, "fact");
+        if (hasReceipt && !hasFact) {
+          if (factsStarted)
+            throw new TypeError(
+              "snapshot receipt records must precede fact records",
+            );
+          receiptCount++;
+          expectedBasis = isRecord(record.receipt)
+            ? record.receipt.event
+            : undefined;
+          if (deferredError === undefined) {
+            try {
+              expectedBasis = restoreReceipt(record);
+            } catch (error) {
+              deferredError = error;
+            }
+          }
+          continue;
+        }
+        if (hasFact && !hasReceipt) {
+          factsStarted = true;
+          factCount++;
+          if (deferredError === undefined) {
+            try {
+              restoreFact(record);
+            } catch (error) {
+              deferredError = error;
+            }
+          }
+          continue;
+        }
+        throw new TypeError(
+          "snapshot footer counts or record kinds do not match the body",
+        );
       }
+      if (footer === null)
+        throw new TypeError(
+          "snapshot is truncated; header and footer are required",
+        );
+      if (typeof footer.sha256 !== "string")
+        throw new TypeError(
+          "snapshot header/footer is invalid or targets another format version",
+        );
+      if (footer.sha256 !== streamDigest.digest("hex"))
+        throw new Conflict(
+          "snapshot digest does not match its body; reject the truncated or modified stream",
+        );
+      const footerCount = (value: unknown): bigint => {
+        // The JSON parser returns only integral safe numbers through this path;
+        // fractions are JsonFloat and larger integers are bigint.
+        if (typeof value === "number" && value >= 0) return BigInt(value);
+        if (typeof value === "bigint" && value >= 0n) return value;
+        throw new TypeError(
+          "snapshot footer counts must be non-negative integers",
+        );
+      };
+      if (
+        receiptCount !== footerCount(footer.receipts) ||
+        factCount !== footerCount(footer.facts)
+      )
+        throw new TypeError(
+          "snapshot footer counts or record kinds do not match the body",
+        );
+      if (header.basis !== expectedBasis)
+        throw new Conflict(
+          "snapshot header basis does not match its final transaction receipt",
+        );
+      if (deferredError !== undefined) throw deferredError;
       this._connection
         .prepare("UPDATE fgraph_meta SET value=? WHERE key='next_id'")
         .run(next);
       this.#cacheVersion = -1n;
       this.#refreshCache(true);
+      for (const [
+        transaction,
+        [expectedAt, expectedOriginAt],
+      ] of receiptMetadata) {
+        const metadata = this.#txMetadata(transaction);
+        const actualAt = instantValue(metadata.at);
+        const actualOriginAt = instantValue(
+          metadata.imported_at ?? metadata.at,
+        );
+        if (actualAt !== expectedAt || actualOriginAt !== expectedOriginAt)
+          throw new Conflict(
+            `snapshot receipt ${this.#eventIdForTx(transaction)} metadata disagrees with its facts`,
+          );
+      }
       const checked = this.#doctorReport();
       if (checked.fatal.length > 0)
         throw new FormatError(

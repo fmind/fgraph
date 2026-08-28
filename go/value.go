@@ -69,6 +69,9 @@ func decodeJSON(r io.Reader, allowIntegralFloat bool, maxDepth int) (any, error)
 	if !utf8.Valid(raw) {
 		return nil, fail(ErrType, "JSON input is not valid UTF-8; encode binary data with the bytes wrapper")
 	}
+	if unicodeErr := validateJSONUnicodeEscapes(raw); unicodeErr != nil {
+		return nil, fail(ErrType, "JSON input has invalid Unicode; pair UTF-16 surrogate escapes: %v", unicodeErr)
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	v, err := decodeValue(dec, allowIntegralFloat, 0, maxDepth)
@@ -85,6 +88,65 @@ func decodeJSON(r io.Reader, allowIntegralFloat bool, maxDepth int) (any, error)
 		return nil, fail(ErrType, "invalid trailing JSON: %v", err)
 	}
 	return v, nil
+}
+
+func validateJSONUnicodeEscapes(raw []byte) error {
+	inString := false
+	for index := 0; index < len(raw); index++ {
+		switch raw[index] {
+		case '"':
+			inString = !inString
+		case '\\':
+			if !inString || index+1 >= len(raw) {
+				continue
+			}
+			if raw[index+1] != 'u' {
+				index++ // The escaped byte cannot terminate the JSON string.
+				continue
+			}
+			value, ok := jsonHexEscape(raw[index+2:])
+			if !ok {
+				continue // The JSON decoder reports malformed hexadecimal escapes.
+			}
+			switch {
+			case value >= 0xd800 && value <= 0xdbff:
+				if index+12 > len(raw) || raw[index+6] != '\\' || raw[index+7] != 'u' {
+					return fmt.Errorf("high surrogate escape at byte %d has no low surrogate", index)
+				}
+				low, lowOK := jsonHexEscape(raw[index+8:])
+				if !lowOK || low < 0xdc00 || low > 0xdfff {
+					return fmt.Errorf("high surrogate escape at byte %d has no low surrogate", index)
+				}
+				index += 11
+			case value >= 0xdc00 && value <= 0xdfff:
+				return fmt.Errorf("low surrogate escape at byte %d has no high surrogate", index)
+			default:
+				index += 5
+			}
+		}
+	}
+	return nil
+}
+
+func jsonHexEscape(raw []byte) (uint16, bool) {
+	if len(raw) < 4 {
+		return 0, false
+	}
+	var value uint16
+	for _, char := range raw[:4] {
+		value <<= 4
+		switch {
+		case char >= '0' && char <= '9':
+			value += uint16(char - '0')
+		case char >= 'a' && char <= 'f':
+			value += uint16(char-'a') + 10
+		case char >= 'A' && char <= 'F':
+			value += uint16(char-'A') + 10
+		default:
+			return 0, false
+		}
+	}
+	return value, true
 }
 
 func decodeValue(dec *json.Decoder, allowIntegralFloat bool, depth, maxDepth int) (any, error) {

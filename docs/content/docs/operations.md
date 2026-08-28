@@ -112,7 +112,7 @@ Every handle has a deterministic query work budget, default `100000`. It counts 
 fgraph --query-budget 250000 --db memory.db q @query.json
 ```
 
-Search additionally bounds retrieval lists, filters, text attributes, expanded nodes, matched evidence, and its complete 1 MiB result. MCP has tighter tool limits and a 256 KiB response cap. Exceeding a bound returns `TooLarge` or a typed input error; raise a budget only for a measured trusted workload.
+Search additionally bounds retrieval lists, filters, text attributes, expanded nodes, matched evidence, and its complete 1 MiB result. MCP has tighter tool limits and a 256 KiB response cap; portable change pages reserve headroom with a 192 KiB event budget and expose larger individual events as integrity-checked 128 KiB chunks. Exceeding a bound returns `TooLarge` or a typed input error; raise a budget only for a measured trusted workload.
 
 One logical JSON fact can contain at most 64 nested arrays/objects. Complete wire documents have a separate depth limit of 80, leaving room for transaction, event, and snapshot envelopes around a maximum-depth fact. Both limits fail with `TooLarge`; cyclic in-memory structures are rejected rather than leaking a runtime recursion failure.
 

@@ -1,15 +1,116 @@
 package fgraph
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"math"
 	"strings"
 	"testing"
 )
+
+type boundedPortableProbe struct {
+	remaining int
+	read      int
+}
+
+func (reader *boundedPortableProbe) Read(buffer []byte) (int, error) {
+	if reader.remaining == 0 {
+		return 0, io.EOF
+	}
+	count := min(len(buffer), reader.remaining)
+	for index := range count {
+		buffer[index] = 'x'
+	}
+	reader.remaining -= count
+	reader.read += count
+	return count, nil
+}
+
+func TestPortableLineReaderExcludesLFAndStopsAtTheCap(t *testing.T) {
+	payload := bytes.Repeat([]byte{'x'}, maxPortableLineBytes)
+	line, err := readPortableLine(bufio.NewReader(bytes.NewReader(append(payload, '\n'))))
+	if err != nil || !bytes.Equal(line, payload) {
+		t.Fatalf("exact-limit line = %d bytes, %v; want %d payload bytes", len(line), err, len(payload))
+	}
+
+	probe := &boundedPortableProbe{remaining: maxPortableLineBytes + 64*1024}
+	if _, err := readPortableLine(bufio.NewReader(probe)); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized line error = %v, want TooLarge", err)
+	}
+	if probe.read > maxPortableLineBytes+4096 {
+		t.Fatalf("reader consumed %d bytes before enforcing %d-byte cap", probe.read, maxPortableLineBytes)
+	}
+}
+
+func TestPortableReadersPreserveTooLargeTaxonomy(t *testing.T) {
+	ctx := context.Background()
+	for name, call := range map[string]func() error{
+		"apply": func() error {
+			_, err := fixedDB(t, ":memory:").Apply(ctx, &boundedPortableProbe{remaining: maxPortableLineBytes + 1})
+			return err
+		},
+		"restore": func() error {
+			return fixedDB(t, ":memory:").Restore(ctx, &boundedPortableProbe{remaining: maxPortableSnapshotLineBytes + 1})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			if !errors.Is(err, ErrTooLarge) || ErrorName(err) != "TooLarge" {
+				t.Fatalf("portable reader error = %v (%s), want TooLarge", err, ErrorName(err))
+			}
+		})
+	}
+}
+
+func TestRestoreUsesExpandedSnapshotRecordCap(t *testing.T) {
+	header := `{"basis":"00000000-0000-4000-8000-000000000040","created_at":1767225600000000,"fgraph":"snapshot/1","format":2}`
+	// Snapshot receipts embed canonical event_data and may therefore be larger
+	// than an event line; malformed content must reach JSON validation first.
+	receipt := `{"receipt":` + strings.Repeat(" ", maxPortableLineBytes) + `}`
+	err := fixedDB(t, ":memory:").Restore(context.Background(), strings.NewReader(header+"\n"+receipt+"\n"))
+	if errors.Is(err, ErrTooLarge) || !errors.Is(err, ErrType) {
+		t.Fatalf("expanded snapshot record error = %v, want JSON TypeError rather than TooLarge", err)
+	}
+}
+
+func TestSnapshotRecordCapAccommodatesNearLimitEventReceipt(t *testing.T) {
+	nameTail := strings.Repeat("x", 494)
+	created := make([]any, (maxPortableLineBytes-1024)/515)
+	for index := range created {
+		created[index] = fmt.Sprintf("portable/%08d/%s", index, nameTail)
+	}
+	event := map[string]any{
+		"fgraph": "event/1", "event": "11111111-1111-4111-8111-111111111111",
+		"at": int64(1_767_225_600_000_000), "created": created,
+		"asserted": []any{}, "retracted": []any{},
+	}
+	eventData, eventHash, err := canonicalEventData(event)
+	if err != nil || len(eventData) < maxPortableLineBytes-16*1024 {
+		t.Fatalf("near-limit event = %d bytes, %v", len(eventData), err)
+	}
+	record, err := canonicalJSON(map[string]any{"receipt": map[string]any{
+		"event": event["event"], "at": event["at"], "origin_at": event["at"],
+		"event_hash": hex.EncodeToString(eventHash[:]), "event_data": event,
+		"operation_id": nil, "request_hash": nil, "created": created,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record) <= maxPortableLineBytes || len(record) > maxPortableSnapshotLineBytes {
+		t.Fatalf("snapshot receipt = %d bytes; event cap=%d snapshot cap=%d", len(record), maxPortableLineBytes, maxPortableSnapshotLineBytes)
+	}
+	decoded, err := readPortableLineLimit(bufio.NewReader(bytes.NewReader(append(record, '\n'))), maxPortableSnapshotLineBytes)
+	if err != nil || !bytes.Equal(decoded, record) {
+		t.Fatalf("near-limit snapshot receipt = %d bytes, %v", len(decoded), err)
+	}
+}
 
 func TestApplySelectorAndWireValueBoundaries(t *testing.T) {
 	ctx := context.Background()

@@ -276,13 +276,13 @@ function pattern(
     const pages = db._queryDatomsForEntities(
       bindings.map((binding) => binding.get(entityVariable)?.value as bigint),
       attributeFixed.value as bigint,
+      () => work.spend(),
     );
     if (pages !== null) {
       const result: Binding[] = [];
       for (const binding of bindings) {
         const entity = binding.get(entityVariable)?.value as bigint;
         for (const datom of pages.get(entity) ?? []) {
-          work.spend();
           const row = datom.row;
           let current = unify(
             binding,

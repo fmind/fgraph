@@ -164,12 +164,8 @@ func TestQueryEvaluationBranchCoverage(t *testing.T) {
 	}
 
 	err := db.withRead(ctx, func(runner sqlRunner) error {
-		facts, factsErr := db.queryFacts(ctx, runner)
-		if factsErr != nil {
-			return factsErr
-		}
 		evaluator := &queryEvaluator{
-			ctx: ctx, runner: runner, db: db, facts: facts,
+			ctx: ctx, runner: runner, db: db,
 			rules: map[string][]ruleDef{}, relations: map[string][][]cell{},
 		}
 		qA := db.store.names["q-a"]

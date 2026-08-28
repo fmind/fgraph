@@ -6,14 +6,18 @@ import copy
 import hashlib
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from io import StringIO
 from typing import Any
 
 import pytest
 
 import fgraph
+import fgraph.store as store_module
 from fgraph.store import (
     MAX_EVENT_BYTES,
+    MAX_SNAPSHOT_LINE_BYTES,
+    _bounded_portable_lines,
     _canonical_event_data,
     _derived_entity_id,
     _event_mentions_selector,
@@ -164,6 +168,71 @@ def test_apply_skips_blanks_reuses_stable_entities_and_detects_event_collisions(
         db.apply(canonical_json(collision))
 
 
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_apply_string_splits_ndjson_only_on_lf(separator: str) -> None:
+    value = f"before{separator}after"
+    with fgraph.connect(":memory:", clock=1_767_225_600_000_000) as source:
+        source.transact({"id": "unicode/item", "unicode/text": value})
+        stream = "".join(f"{canonical_json(record)}\n" for record in source.event_records())
+    assert separator in stream
+
+    with fgraph.connect(":memory:") as target:
+        target.apply(stream)
+        assert target.entity("unicode/item")["unicode/text"] == value
+
+
+def test_portable_text_reader_enforces_the_payload_cap_before_reading_a_later_line() -> None:
+    class ReadProbe(StringIO):
+        def __init__(self, value: str) -> None:
+            super().__init__(value)
+            self.limits: list[int] = []
+
+        def readline(self, size: int = -1) -> str:
+            self.limits.append(size)
+            return super().readline(size)
+
+    exact = ReadProbe("xxxx\nlater")
+    lines = _bounded_portable_lines(exact, maximum_bytes=4, description="test")
+    assert next(lines) == "xxxx\n"
+    assert exact.limits == [6]
+
+    oversized = ReadProbe("xxxxx\nlater")
+    with pytest.raises(fgraph.TooLarge, match="test line"):
+        next(_bounded_portable_lines(oversized, maximum_bytes=4, description="test"))
+    assert oversized.limits == [6]
+
+    assert list(_bounded_portable_lines("one\ntwo", maximum_bytes=3, description="test")) == ["one", "two"]
+    invalid_lines: Any = iter([b"bytes"])
+    with pytest.raises(fgraph.TypeError, match="must be text"):
+        next(_bounded_portable_lines(invalid_lines, maximum_bytes=5, description="test"))
+    with pytest.raises(fgraph.TypeError, match="valid UTF-8"):
+        next(_bounded_portable_lines(iter(["\ud800"]), maximum_bytes=5, description="test"))
+
+
+def test_snapshot_writer_rejects_a_record_beyond_the_derived_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        store_module,
+        "_canonical_json_document",
+        lambda _record: "x" * (MAX_SNAPSHOT_LINE_BYTES + 1),
+    )
+    with fgraph.connect(":memory:") as db, pytest.raises(fgraph.TooLarge, match="snapshot record"):
+        next(db.iter_snapshot())
+
+
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_restore_string_splits_ndjson_only_on_lf(separator: str) -> None:
+    value = f"before{separator}after"
+    with fgraph.connect(":memory:", clock=1_767_225_600_000_000) as source:
+        source.transact({"id": "unicode/item", "unicode/text": value})
+        snapshot = source.snapshot()
+    assert isinstance(snapshot, str)
+    assert separator in snapshot
+
+    with fgraph.connect(":memory:") as target:
+        target.restore(snapshot)
+        assert target.entity("unicode/item")["unicode/text"] == value
+
+
 def _snapshot_records() -> list[dict[str, Any]]:
     with fgraph.connect(":memory:", clock=1_767_225_600_000_000) as db:
         db.declare("edge/ref", ref=True)
@@ -240,3 +309,100 @@ def test_snapshot_receipt_rejections(
     mutate(receipt)
     with fgraph.connect(":memory:") as target, pytest.raises((fgraph.TypeError, fgraph.Conflict), match=message):
         target.restore(_render_snapshot(records))
+
+
+def test_snapshot_receipt_created_must_match_authenticated_event() -> None:
+    records = _snapshot_records()
+    records[1]["receipt"]["created"].append("edge/ghost")
+
+    with fgraph.connect(":memory:") as target, pytest.raises(fgraph.Conflict, match="created"):
+        target.restore(_render_snapshot(records))
+
+
+def test_snapshot_fact_attribute_must_be_a_valid_named_attribute() -> None:
+    with fgraph.connect(":memory:", clock=1_767_225_600_000_000) as source:
+        source.transact({"anonymous/value": 1})
+        snapshot = source.snapshot()
+    assert isinstance(snapshot, str)
+    records = [json.loads(line) for line in snapshot.splitlines()]
+    anonymous = next(
+        selector
+        for record in records
+        if "receipt" in record
+        for selector in record["receipt"]["created"]
+        if isinstance(selector, dict)
+    )
+    fact = next(record["fact"] for record in records if record.get("fact", [None, None])[1] == "anonymous/value")
+    fact[1] = anonymous
+
+    with fgraph.connect(":memory:") as target, pytest.raises(fgraph.TypeError, match="named attribute"):
+        target.restore(_render_snapshot(records))
+
+
+def test_snapshot_receipt_rejects_unicode_control_operation_id() -> None:
+    records = _snapshot_records()
+    receipt = records[1]["receipt"]
+    receipt["operation_id"] = "\u0080"
+    receipt["request_hash"] = "00" * 32
+
+    with fgraph.connect(":memory:") as target, pytest.raises(fgraph.TypeError, match="operation_id"):
+        target.restore(_render_snapshot(records))
+
+
+def test_restore_consumes_a_one_shot_iterator_without_materializing_it() -> None:
+    snapshot = _render_snapshot(_snapshot_records())
+
+    class OneShotSnapshot(Iterator[str]):
+        def __init__(self) -> None:
+            self._lines = iter(snapshot.splitlines(keepends=True))
+            self._iterated = False
+
+        def __iter__(self) -> OneShotSnapshot:
+            if self._iterated:
+                raise AssertionError("snapshot iterator was restarted")
+            self._iterated = True
+            return self
+
+        def __next__(self) -> str:
+            return next(self._lines)
+
+        def __length_hint__(self) -> int:
+            raise AssertionError("snapshot iterator was materialized")
+
+    with fgraph.connect(":memory:") as target:
+        target.restore(OneShotSnapshot())
+        assert target.entity("edge/one")["edge/value"] == 2
+
+
+def test_doctor_rejects_anonymous_fact_attributes() -> None:
+    with fgraph.connect(":memory:") as db:
+        db.transact({"anonymous/value": 1})
+        anonymous = int(
+            db._connection.execute(  # noqa: SLF001
+                "SELECT i.id FROM fgraph_ids i LEFT JOIN fgraph_events ev ON ev.tx=i.id "
+                "WHERE i.name IS NULL AND ev.tx IS NULL ORDER BY i.id LIMIT 1"
+            ).fetchone()[0]
+        )
+        db._connection.execute(  # noqa: SLF001
+            "UPDATE fgraph_facts SET a=? WHERE a=(SELECT id FROM fgraph_ids WHERE name='anonymous/value')",
+            (anonymous,),
+        )
+
+        report = db.doctor()
+
+    assert report["ok"] is False
+    assert any("invalid fact attributes" in problem for problem in report["problems"])
+
+
+def test_doctor_rejects_unicode_control_operation_id() -> None:
+    with fgraph.connect(":memory:") as db:
+        report = db.transact({"id": "operation/item"}, operation_id="operation:valid")
+        db._connection.execute(  # noqa: SLF001
+            "UPDATE fgraph_events SET operation_id=? WHERE tx=?",
+            ("\u0080", report.tx),
+        )
+
+        checked = db.doctor()
+
+    assert checked["ok"] is False
+    assert any("malformed physical receipt fields" in problem for problem in checked["problems"])

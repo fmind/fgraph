@@ -14,6 +14,8 @@ Each JSON file under `cases/<area>/` has a name, rationale, and ordered steps. R
 
 Arrays and objects are exact by default. `"...": true` permits additional object keys only; it never permits extra array values. Unordered query rows are compared as multisets only when the query has no non-empty `order`.
 
+`portable-boundaries.json` is the shared adversarial stream corpus. Every runtime must reject its raw malformed-Unicode documents with the same typed error, preserve its valid Unicode line separators through event and snapshot replay, and reject its named snapshot-integrity mutations atomically.
+
 ## Determinism
 
 Runners inject:

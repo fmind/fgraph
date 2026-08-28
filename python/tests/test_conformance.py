@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,10 +11,12 @@ from typing import Any
 import pytest
 
 import fgraph
+from fgraph.jsonio import loads
 from fgraph.values import _canonical_json_document
 
 CASE_ROOT = Path(__file__).parents[2] / "conformance" / "cases"
 CASES = sorted(CASE_ROOT.rglob("*.json"))
+PORTABLE_BOUNDARIES = Path(__file__).parents[2] / "conformance" / "portable-boundaries.json"
 
 
 class ConformanceClock:
@@ -201,3 +204,61 @@ def test_conformance(case_path: Path) -> None:
     with fgraph.connect(":memory:", clock=ConformanceClock()) as db:
         for step in case["steps"]:
             _run(db, step)
+
+
+def test_portable_boundary_conformance() -> None:
+    boundaries = json.loads(PORTABLE_BOUNDARIES.read_text(encoding="utf-8"))
+    for invalid in boundaries["invalid_json"]:
+        with fgraph.connect(":memory:", clock=ConformanceClock()) as db:
+            with pytest.raises(fgraph.FGraphError) as raised:
+                db.transact(loads(invalid["wire"], context=invalid["name"]))
+            assert type(raised.value).__name__ == invalid["error"]
+
+    with fgraph.connect(":memory:", clock=ConformanceClock()) as source:
+        source.transact(
+            [
+                {"id": "portable/unicode", "portable/value": boundaries["unicode_value"]},
+                {"portable/anonymous": True},
+            ]
+        )
+        snapshot = source.snapshot()
+        events = "".join(f"{_canonical_json_document(record)}\n" for record in source.event_records())
+    assert isinstance(snapshot, str)
+
+    for stream, restore in ((snapshot, True), (events, False)):
+        with fgraph.connect(":memory:", clock=ConformanceClock()) as target:
+            target.restore(stream) if restore else target.apply(stream)
+            assert target.entity("portable/unicode") == {"portable/value": boundaries["unicode_value"]}
+
+    def seal(records: list[dict[str, Any]]) -> str:
+        body = "".join(f"{_canonical_json_document(record)}\n" for record in records[:-1])
+        records[-1]["sha256"] = hashlib.sha256(body.encode()).hexdigest()
+        return body + f"{_canonical_json_document(records[-1])}\n"
+
+    for mutation in boundaries["snapshot_mutations"]:
+        records = [loads(line, context=mutation["name"]) for line in snapshot.rstrip("\n").split("\n")]
+        receipts = [record for record in records if "receipt" in record]
+        facts = [record for record in records if "fact" in record]
+        receipt = receipts[0]["receipt"]
+        if mutation["name"] == "receipt_created_mismatch":
+            receipt["created"].append("receipt-only/ghost")
+        elif mutation["name"] == "anonymous_attribute":
+            anonymous = next(
+                selector
+                for wrapper in receipts
+                for selector in wrapper["receipt"]["created"]
+                if isinstance(selector, dict)
+            )
+            facts[0]["fact"][1] = anonymous
+        elif mutation["name"] == "operation_id_control":
+            receipt["operation_id"] = "\u0080"
+            receipt["request_hash"] = "0" * 64
+        else:
+            raise AssertionError(f"unknown portable snapshot mutation {mutation['name']}")
+
+        with fgraph.connect(":memory:", clock=ConformanceClock()) as target:
+            before = target.stats()
+            with pytest.raises(fgraph.FGraphError) as raised:
+                target.restore(seal(records))
+            assert type(raised.value).__name__ == mutation["error"]
+            assert target.stats() == before

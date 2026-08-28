@@ -131,11 +131,12 @@ Agents that prefer MCP resources can page:
 - `fgraph://schema{?prefix,cursor}`;
 - `fgraph://entity/{selector}{?at,cursor}`;
 - `fgraph://tx/{tx}`;
-- `fgraph://changes{?since,cursor}`.
+- `fgraph://changes{?since,cursor}`;
+- `fgraph://event/{event}{?basis,offset,digest}`.
 
 Schema/entity/change continuations are pinned to the basis of the first page. Malformed, stale, invisible-basis, or cross-request cursors fail rather than mixing snapshots. Cursors are opaque continuation state, not authenticated security tokens.
 
-Schema pages share one continuation across a combined maximum of 100 attributes and shapes. Entity pages expose EAVT datoms under `items`; change pages expose complete portable `event/1` records under `events`. Each resource uses `next_uri` when another page exists.
+Schema pages share one continuation across a combined maximum of 100 attributes and shapes. Entity pages expose EAVT datoms under `items`; change pages expose complete portable `event/1` records under `events`, with a 192 KiB canonical-event budget below the overall 256 KiB resource cap. When one event exceeds that budget, `oversized_event` points to integrity-checked 128 KiB base64 chunks and the change continuation advances to later events. Following the chunk `next_uri` values reconstructs the exact canonical event document.
 
 ## Make agents use it
 

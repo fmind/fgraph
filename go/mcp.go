@@ -514,7 +514,19 @@ func NewMCPServer(db *DB, options MCPOptions) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "datoms", Description: "Read a bounded, basis-pinned index page; continue with next_cursor.",
 		Annotations: readAnnotations, OutputSchema: outputSchema,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input datomsInput) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, request *mcp.CallToolRequest, input datomsInput) (*mcp.CallToolResult, any, error) {
+		arguments, err := exactMCPArguments(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		components := input.Components
+		if raw, present := arguments["components"]; present {
+			var ok bool
+			components, ok = raw.([]any)
+			if !ok {
+				return nil, nil, fail(ErrType, "MCP datom components must be a JSON array")
+			}
+		}
 		limit := 100
 		if input.Limit != nil {
 			if *input.Limit < 1 {
@@ -526,7 +538,7 @@ func NewMCPServer(db *DB, options MCPOptions) *mcp.Server {
 			limit = *input.Limit
 		}
 		page, err := db.Datoms(ctx, DatomOptions{
-			Index: input.Index, Source: input.Source, Components: input.Components,
+			Index: input.Index, Source: input.Source, Components: components,
 			Cursor: input.Cursor, Limit: limit,
 		})
 		return toolMCPOutput(ctx, db, page, err, page.BasisTx)

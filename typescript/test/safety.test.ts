@@ -38,6 +38,69 @@ describe("v1 resource-safety contract", () => {
     expect(() => db.q(withPredicate, {}, { budget: 3 })).toThrowError(TooLarge);
   });
 
+  it("streams query candidates instead of materializing the full match set", () => {
+    using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
+    db.transact(
+      Array.from({ length: 100 }, (_value, index) => ({
+        id: `item/${index}`,
+        "item/value": index,
+      })),
+    );
+
+    const candidates = db._queryDatoms(null, null);
+    expect(Array.isArray(candidates)).toBe(false);
+    const iterator = candidates[Symbol.iterator]();
+    expect(iterator.next().done).toBe(false);
+    iterator.return(undefined);
+  });
+
+  it("spends batched query work while rows are streamed", () => {
+    using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
+    db.transact(
+      Array.from({ length: 3 }, (_value, index) => ({
+        id: `batch/${index}`,
+        "batch/value": index,
+      })),
+    );
+    const entities = Array.from({ length: 3 }, (_value, index) =>
+      db._resolveRead(`batch/${index}`),
+    ) as bigint[];
+    const attribute = db._resolveRead("batch/value") as bigint;
+    let spent = 0;
+
+    expect(() =>
+      db._queryDatomsForEntities(entities, attribute, () => {
+        spent++;
+        if (spent === 2)
+          throw new TooLarge("test budget exhausted during iteration");
+      }),
+    ).toThrowError(TooLarge);
+    expect(spent).toBe(2);
+  });
+
+  it("charges every duplicate binding that reuses a batched row", () => {
+    using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
+    db.declare("item/tag", { many: true });
+    db.transact({
+      id: "item/one",
+      "item/name": "One",
+      "item/tag": ["a", "b"],
+    });
+    const query = {
+      find: ["?tag", "?name"],
+      where: [
+        ["?entity", "item/tag", "?tag"],
+        ["?entity", "item/name", "?name"],
+      ],
+    };
+
+    expect(() => db.q(query, {}, { budget: 3 })).toThrowError(TooLarge);
+    expect(db.q(query, {}, { budget: 4 }).rows).toEqual([
+      ["a", "One"],
+      ["b", "One"],
+    ]);
+  });
+
   it("deduplicates wildcard bindings between patterns without changing work accounting", () => {
     using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
     db.declare("item/tag", { many: true });

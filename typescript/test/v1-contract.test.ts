@@ -734,6 +734,27 @@ describe("v1 event delivery", () => {
       receipt.operation_id = "unpaired";
     });
     rejectSnapshot((records) => {
+      const receipt = (
+        receipts(records)[0] as { receipt: Record<string, unknown> }
+      ).receipt;
+      receipt.operation_id = "\u0080";
+      receipt.request_hash = "0".repeat(64);
+    });
+    rejectSnapshot((records) => {
+      const receipt = (
+        receipts(records)[0] as { receipt: Record<string, unknown> }
+      ).receipt;
+      receipt.origin_at = BigInt(receipt.origin_at as bigint) + 1n;
+    });
+    rejectSnapshot((records) => {
+      const receipt = (
+        receipts(records)[0] as {
+          receipt: { created: unknown[] };
+        }
+      ).receipt;
+      receipt.created.push("receipt-only/ghost");
+    });
+    rejectSnapshot((records) => {
       const firstReceipt = (
         receipts(records)[0] as { receipt: Record<string, unknown> }
       ).receipt;
@@ -758,6 +779,18 @@ describe("v1 event delivery", () => {
     rejectSnapshot((records) => {
       const fact = (facts(records)[0] as { fact: unknown[] }).fact;
       fact[0] = "missing/identity";
+    });
+    rejectSnapshot((records) => {
+      const anonymous = receipts(records)
+        .flatMap(
+          (wrapper) =>
+            (wrapper as { receipt: { created: unknown[] } }).receipt.created,
+        )
+        .find((selector) => typeof selector === "object");
+      if (anonymous === undefined)
+        throw new Error("snapshot has no anonymous selector to corrupt");
+      const fact = (facts(records)[0] as { fact: unknown[] }).fact;
+      fact[1] = anonymous;
     });
     rejectSnapshot((records) => {
       const fact = (facts(records)[0] as { fact: unknown[] }).fact;

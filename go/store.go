@@ -195,6 +195,9 @@ func Open(path string, options ...OpenOption) (*DB, error) {
 		queryBudget: DefaultQueryBudget,
 	}
 	for _, option := range options {
+		if option == nil {
+			return nil, fail(ErrType, "open option is nil; pass a concrete WithClock, WithEventIDFactory, WithReadOnly, or WithQueryBudget option")
+		}
 		option(&config)
 	}
 	if path == "" {
@@ -202,6 +205,9 @@ func Open(path string, options ...OpenOption) (*DB, error) {
 	}
 	if config.queryBudget <= 0 {
 		return nil, fail(ErrType, "query budget %d is invalid; use a positive work-unit limit such as %d", config.queryBudget, DefaultQueryBudget)
+	}
+	if config.clock == nil {
+		return nil, fail(ErrType, "clock is nil; provide a function that returns integer microseconds")
 	}
 	if config.eventIDSet && config.eventIDs == nil {
 		return nil, fail(ErrType, "event ID factory is nil; provide a UUID factory")

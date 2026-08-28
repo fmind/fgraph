@@ -42,6 +42,9 @@ func (db *DB) Snapshot(ctx context.Context, writer io.Writer) error {
 			if encodeErr != nil {
 				return encodeErr
 			}
+			if len(encoded) > maxPortableSnapshotLineBytes {
+				return fail(ErrTooLarge, "portable snapshot record is %d bytes; keep it at or below %d bytes", len(encoded), maxPortableSnapshotLineBytes)
+			}
 			if err := writeFull(writer, append(encoded, '\n')); err != nil {
 				return wrap(ErrFormat, err, "cannot write portable snapshot")
 			}
@@ -284,8 +287,11 @@ func (db *DB) restoreSnapshotStream(ctx context.Context, runner sqlRunner, conn 
 	headerSeen, footerSeen := false, false
 	var headerBasis string
 	for {
-		raw, readErr := readPortableLine(buffered)
+		raw, readErr := readPortableLineLimit(buffered, maxPortableSnapshotLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			if errors.Is(readErr, ErrTooLarge) {
+				return readErr
+			}
 			return wrap(ErrFormat, readErr, "cannot read snapshot stream")
 		}
 		if len(bytes.TrimSpace(raw)) > 0 {

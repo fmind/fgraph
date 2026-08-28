@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
 
 import {
@@ -21,6 +22,11 @@ import { MAX_VALUE_BYTES, isRecord } from "./values.js";
 
 const MAX_STDIO_MESSAGE_BYTES = 2 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 256 * 1024;
+const MAX_CHANGES_PAGE_BYTES = 192 * 1024;
+const EVENT_CHUNK_BYTES = 128 * 1024;
+const EVENT_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const JSON_WITH_RAW = JSON as typeof JSON & {
   rawJSON(text: string): unknown;
 };
@@ -917,6 +923,18 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
     next.searchParams.set("cursor", cursor);
     return next.href;
   };
+  const eventUri = (
+    event: string,
+    basis: bigint,
+    offset: number,
+    digest: string,
+  ): string => {
+    const next = new URL(`fgraph://event/${event}`);
+    next.searchParams.set("basis", basis.toString());
+    next.searchParams.set("offset", String(offset));
+    next.searchParams.set("digest", digest);
+    return next.href;
+  };
   server.registerResource(
     "schema",
     // The installed SDK requires every RFC 6570 query variable to be present.
@@ -1091,11 +1109,53 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
           "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx LIMIT 101",
         )
         .all(position, basis);
-      const selected = rows.slice(0, 100);
-      const end = selected.at(-1)?.tx;
-      const events = end === undefined ? [] : db.eventRecords(position, end);
+      const events: Record<string, unknown>[] = [];
+      let end = position;
+      let consumed = 0;
+      let pageBytes = 0;
+      let oversizedEvent: Record<string, unknown> | undefined;
+      for (const row of rows.slice(0, 100)) {
+        const event = db.eventRecords(end, row.tx)[0];
+        if (event === undefined)
+          throw new Conflict(
+            `transaction ${row.tx} lacks its portable event record`,
+          );
+        const rendered = stringifyJson(event);
+        const bytes = Buffer.byteLength(rendered, "utf8");
+        if (bytes > MAX_CHANGES_PAGE_BYTES) {
+          // Advancing past the pointer keeps a large event from blocking every
+          // later change while the chunk resource retains exact bytes.
+          if (events.length > 0) break;
+          const stored = db._connection
+            .prepare<[bigint], { event_hash: Buffer }>(
+              "SELECT event_hash FROM fgraph_events WHERE tx=?",
+            )
+            .get(row.tx);
+          if (stored === undefined || stored.event_hash.length !== 32)
+            throw new Conflict(
+              `transaction ${row.tx} lacks a valid portable event hash`,
+            );
+          const digest = stored.event_hash.toString("hex");
+          oversizedEvent = {
+            event: event.event,
+            event_hash: digest,
+            bytes,
+            uri: eventUri(String(event.event), basis, 0, digest),
+          };
+          end = row.tx;
+          consumed += 1;
+          break;
+        }
+        if (events.length > 0 && pageBytes + bytes > MAX_CHANGES_PAGE_BYTES)
+          break;
+        events.push(event);
+        pageBytes += bytes;
+        end = row.tx;
+        consumed += 1;
+      }
       const value: Record<string, unknown> = { basis_tx: basis, events };
-      if (rows.length > 100 && end !== undefined)
+      if (oversizedEvent !== undefined) value.oversized_event = oversizedEvent;
+      if (consumed < rows.length)
         value.next_uri = continuedUri(
           uri,
           encodeResourceCursor({
@@ -1106,6 +1166,110 @@ export function createMcpServer(db: Db, options: McpOptions = {}): McpServer {
             position: end,
           }),
         );
+      return resource(uri, value);
+    },
+  );
+  server.registerResource(
+    "event",
+    // The installed SDK only routes optional query variables reliably through
+    // a reserved expansion; the advertised URI still carries basis/offset/digest.
+    new ResourceTemplate("fgraph://event/{event}{+query}", {
+      list: undefined,
+    }),
+    {
+      description: "Integrity-checked chunks of one portable event",
+      mimeType: "application/json",
+    },
+    async (uri, _variables) => {
+      const event = resourceVariable(uri.pathname.replace(/^\//u, ""));
+      if (!EVENT_UUID_PATTERN.test(event))
+        throw new TypeError(
+          `event resource id ${JSON.stringify(event)} must be a canonical lowercase RFC 4122 UUID`,
+        );
+      const visibleBasis = BigInt(db._basisTx());
+      const basisText = uri.searchParams.get("basis");
+      if (basisText === null || !/^[0-9]+$/u.test(basisText))
+        throw new TypeError(
+          "event resource basis must be a visible transaction",
+        );
+      const basis = BigInt(basisText);
+      if (basis < 64n || basis > visibleBasis)
+        throw new TypeError(
+          "event resource basis must be a visible transaction",
+        );
+      const basisReceipt = db._connection
+        .prepare<[bigint], { value: bigint }>(
+          "SELECT 1 value FROM fgraph_events WHERE tx=?",
+        )
+        .get(basis);
+      if (basisReceipt === undefined)
+        throw new TypeError("event resource basis must identify a transaction");
+      const offsetText = uri.searchParams.get("offset") ?? "0";
+      if (!/^[0-9]+$/u.test(offsetText))
+        throw new TypeError(
+          "event resource offset must be a nonnegative integer",
+        );
+      const offsetBig = BigInt(offsetText);
+      if (offsetBig > BigInt(Number.MAX_SAFE_INTEGER))
+        throw new TypeError(
+          "event resource offset exceeds the safe integer range",
+        );
+      const offset = Number(offsetBig);
+      const expectedDigest = uri.searchParams.get("digest");
+      if (expectedDigest === null || !SHA256_PATTERN.test(expectedDigest))
+        throw new TypeError(
+          "event resource digest must be a lowercase SHA-256 hex digest",
+        );
+      const row = db._connection
+        .prepare<
+          [Buffer],
+          { tx: bigint; event_hash: Buffer; event_data: string | null }
+        >(
+          "SELECT ev.tx,ev.event_hash,ev.event_data FROM fgraph_events ev " +
+            "JOIN fgraph_ids i ON i.id=ev.tx WHERE i.gid=? AND i.name IS NULL",
+        )
+        .get(Buffer.from(event.replaceAll("-", ""), "hex"));
+      if (row === undefined || row.tx > basis)
+        throw new Conflict(
+          "event resource is not visible at the requested basis",
+        );
+      if (row.event_hash.length !== 32)
+        throw new Conflict("stored event hash is not a SHA-256 digest");
+      const digest = row.event_hash.toString("hex");
+      if (expectedDigest !== digest)
+        throw new Conflict(
+          "event resource digest does not match stored evidence",
+        );
+      if (row.event_data === null)
+        throw new Conflict("event payload was redacted and cannot be chunked");
+      const parsed = parseJson(row.event_data, `stored event ${event}`);
+      if (
+        !isRecord(parsed) ||
+        parsed.fgraph !== "event/1" ||
+        parsed.event !== event ||
+        stringifyJson(parsed) !== row.event_data ||
+        createHash("sha256").update(row.event_data, "utf8").digest("hex") !==
+          digest
+      )
+        throw new Conflict(
+          "stored event payload is non-canonical or hash-mismatched",
+        );
+      const bytes = Buffer.from(row.event_data, "utf8");
+      if (offset >= bytes.length)
+        throw new TypeError(
+          "event resource offset is outside the event payload",
+        );
+      const end = Math.min(offset + EVENT_CHUNK_BYTES, bytes.length);
+      const value: Record<string, unknown> = {
+        basis_tx: basis,
+        event,
+        event_hash: digest,
+        offset,
+        encoding: "base64",
+        data: bytes.subarray(offset, end).toString("base64"),
+      };
+      if (end < bytes.length)
+        value.next_uri = eventUri(event, basis, end, digest);
       return resource(uri, value);
     },
   );

@@ -340,7 +340,14 @@ func (db *DB) Entity(ctx context.Context, ref any, depth ...int) (map[string]any
 	return result, readErr
 }
 
-func (db *DB) pullEntity(ctx context.Context, runner sqlRunner, id int64, depth int, seen map[int64]bool) (result map[string]any, resultErr error) {
+func (db *DB) pullEntity(
+	ctx context.Context,
+	runner sqlRunner,
+	id int64,
+	depth int,
+	seen map[int64]bool,
+	spendWork ...func() error,
+) (result map[string]any, resultErr error) {
 	visibility, args := db.visibility("f")
 	queryArgs := append([]any{id}, args...)
 	rows, err := runner.QueryContext(ctx, `SELECT f.id,f.e,f.a,f.v,f.t,f.tx,f.rx,i.name
@@ -354,6 +361,11 @@ func (db *DB) pullEntity(ctx context.Context, runner sqlRunner, id int64, depth 
 	seen[id] = true
 	defer delete(seen, id)
 	for rows.Next() {
+		if len(spendWork) > 0 && spendWork[0] != nil {
+			if err := spendWork[0](); err != nil {
+				return nil, err
+			}
+		}
 		var raw rawFact
 		var attr string
 		if err := rows.Scan(&raw.id, &raw.e, &raw.a, &raw.v, &raw.t, &raw.tx, &raw.rx, &attr); err != nil {
@@ -365,7 +377,7 @@ func (db *DB) pullEntity(ctx context.Context, runner sqlRunner, id int64, depth 
 		}
 		var rendered any
 		if raw.t == TagRef && depth > 1 && !seen[asInt64(logical)] {
-			rendered, err = db.pullEntity(ctx, runner, asInt64(logical), depth-1, seen)
+			rendered, err = db.pullEntity(ctx, runner, asInt64(logical), depth-1, seen, spendWork...)
 			if err != nil {
 				return nil, err
 			}

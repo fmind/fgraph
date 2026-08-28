@@ -3,8 +3,12 @@ package fgraph
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"strconv"
@@ -14,8 +18,10 @@ import (
 )
 
 const (
-	mcpResourcePage      = 100
-	maxMCPResourceCursor = 4096
+	mcpResourcePage        = 100
+	maxMCPResourceCursor   = 4096
+	maxMCPChangesPageBytes = 192 << 10
+	maxMCPEventChunkBytes  = 128 << 10
 )
 
 type mcpReceiptResource struct {
@@ -182,7 +188,7 @@ func registerMCPResources(server *mcp.Server, db *DB) {
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name: "fgraph-changes", Title: "fgraph change feed", MIMEType: "application/json",
-		Description: "Portable committed event/1 records after a transaction, 100 events per page.",
+		Description: "Portable committed event/1 records after a transaction, bounded by count and bytes.",
 		URITemplate: "fgraph://changes{?since,cursor}", Annotations: annotations,
 	}, func(ctx context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		uri, err := parseMCPResourceURI(request)
@@ -215,6 +221,38 @@ func registerMCPResources(server *mcp.Server, db *DB) {
 		body, changesErr := db.mcpChanges(ctx, basis, position, sinceArgument, request.Params.URI)
 		if changesErr != nil {
 			return nil, changesErr
+		}
+		return mcpJSONResource(request.Params.URI, body)
+	})
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		Name: "fgraph-event", Title: "fgraph event", MIMEType: "application/json",
+		Description: "One basis- and digest-pinned canonical event payload in bounded byte chunks.",
+		URITemplate: "fgraph://event/{event}{?basis,offset,digest}", Annotations: annotations,
+	}, func(ctx context.Context, request *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		uri, err := parseMCPResourceURI(request)
+		if err != nil {
+			return nil, err
+		}
+		event, eventUUID, basis, offset, digest, coordinateErr := db.mcpEventCoordinates(ctx, uri)
+		if coordinateErr != nil {
+			return nil, coordinateErr
+		}
+		payload, payloadErr := db.mcpEventPayload(ctx, event, eventUUID, basis, digest)
+		if payloadErr != nil {
+			return nil, payloadErr
+		}
+		if offset >= len(payload) {
+			return nil, fail(ErrType, "event resource offset %d is outside its %d-byte canonical payload", offset, len(payload))
+		}
+		end := min(offset+maxMCPEventChunkBytes, len(payload))
+		body := map[string]any{
+			"basis_tx": basis, "event": event, "event_hash": digest,
+			"offset": offset, "encoding": "base64",
+			"data": base64.StdEncoding.EncodeToString(payload[offset:end]),
+		}
+		if end < len(payload) {
+			body["next_uri"] = mcpEventResourceURI(event, basis, end, digest)
 		}
 		return mcpJSONResource(request.Params.URI, body)
 	})
@@ -304,6 +342,125 @@ func (db *DB) mcpResourceView(ctx context.Context, basis int64) (*DB, error) {
 	return db.atTx(basis), nil
 }
 
+func (db *DB) mcpEventCoordinates(
+	ctx context.Context,
+	uri *url.URL,
+) (string, [16]byte, int64, int, string, error) {
+	event, unescapeErr := url.PathUnescape(strings.TrimPrefix(uri.Path, "/"))
+	eventUUID, uuidErr := parseUUID(event)
+	version := eventUUID[6] >> 4
+	if unescapeErr != nil || uuidErr != nil || eventUUID[8]&0xc0 != 0x80 || version < 1 || version > 5 {
+		return "", [16]byte{}, 0, 0, "", fail(ErrType, "event resource id %q must be a canonical RFC UUID version 1 through 5", event)
+	}
+	basis, basisErr := parseMCPEventInteger(uri.Query().Get("basis"), "basis", GenesisTx)
+	if basisErr != nil {
+		return "", [16]byte{}, 0, 0, "", basisErr
+	}
+	visible, visibleErr := db.mcpVisibleBasis(ctx)
+	if visibleErr != nil {
+		return "", [16]byte{}, 0, 0, "", visibleErr
+	}
+	if basis > visible {
+		return "", [16]byte{}, 0, 0, "", fail(ErrType, "event resource basis %d is not visible at basis %d", basis, visible)
+	}
+	var basisExists int
+	existsErr := db.withRead(ctx, func(runner sqlRunner) error {
+		if err := runner.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM fgraph_events WHERE tx=?)", basis).Scan(&basisExists); err != nil {
+			return wrap(ErrFormat, err, "cannot validate event resource basis %d", basis)
+		}
+		return nil
+	})
+	if existsErr != nil {
+		return "", [16]byte{}, 0, 0, "", existsErr
+	}
+	if basisExists != 1 {
+		return "", [16]byte{}, 0, 0, "", fail(ErrType, "event resource basis %d does not identify a transaction receipt", basis)
+	}
+	offsetText := uri.Query().Get("offset")
+	if offsetText == "" {
+		offsetText = "0"
+	}
+	offset64, offsetErr := parseMCPEventInteger(offsetText, "offset", 0)
+	if offsetErr != nil {
+		return "", [16]byte{}, 0, 0, "", offsetErr
+	}
+	if strconv.IntSize == 32 && offset64 > 1<<31-1 {
+		return "", [16]byte{}, 0, 0, "", fail(ErrType, "event resource offset %q exceeds this runtime's integer range", offsetText)
+	}
+	digest := uri.Query().Get("digest")
+	decodedDigest, digestErr := hex.DecodeString(digest)
+	if digestErr != nil || len(decodedDigest) != 32 || digest != strings.ToLower(digest) {
+		return "", [16]byte{}, 0, 0, "", fail(ErrType, "event resource digest must be a lowercase 64-hex SHA-256 digest")
+	}
+	return event, eventUUID, basis, int(offset64), digest, nil
+}
+
+func parseMCPEventInteger(value, name string, minimum int64) (int64, error) {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || value != strconv.FormatInt(parsed, 10) || parsed < minimum {
+		return 0, fail(ErrType, "event resource %s %q must be a decimal integer at least %d", name, value, minimum)
+	}
+	return parsed, nil
+}
+
+func (db *DB) mcpEventPayload(
+	ctx context.Context,
+	event string,
+	eventUUID [16]byte,
+	basis int64,
+	expectedDigest string,
+) ([]byte, error) {
+	var tx int64
+	var storedHash []byte
+	var eventData sql.NullString
+	err := db.withRead(ctx, func(runner sqlRunner) error {
+		queryErr := runner.QueryRowContext(ctx, `SELECT ev.tx,ev.event_hash,ev.event_data
+			FROM fgraph_events ev JOIN fgraph_ids i ON i.id=ev.tx
+			WHERE i.gid=? AND i.name IS NULL`, eventUUID[:]).Scan(&tx, &storedHash, &eventData)
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return fail(ErrConflict, "event resource %s is not visible at basis %d", event, basis)
+		}
+		if queryErr != nil {
+			return wrap(ErrFormat, queryErr, "cannot read event resource %s durable receipt", event)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if tx > basis {
+		return nil, fail(ErrConflict, "event resource %s is not visible at basis %d", event, basis)
+	}
+	if len(storedHash) != 32 {
+		return nil, fail(ErrConflict, "event resource %s has a malformed durable SHA-256 receipt", event)
+	}
+	digest := hex.EncodeToString(storedHash)
+	if expectedDigest != digest {
+		return nil, fail(ErrConflict, "event resource digest does not match the pinned durable receipt")
+	}
+	if !eventData.Valid {
+		return nil, fail(ErrConflict, "event resource payload is unavailable because event %s was redacted", event)
+	}
+	record, decodeErr := decodeStoredEventData(eventData.String, storedHash)
+	if decodeErr != nil {
+		return nil, wrap(ErrConflict, decodeErr, "event resource payload is not canonical durable evidence")
+	}
+	if record["event"] != event {
+		return nil, fail(ErrConflict, "event resource payload identity does not match event %s", event)
+	}
+	return []byte(eventData.String), nil
+}
+
+func mcpEventResourceURI(event string, basis int64, offset int, digest string) string {
+	uri := &url.URL{Scheme: "fgraph", Host: "event", Path: "/" + event}
+	query := uri.Query()
+	query.Set("basis", strconv.FormatInt(basis, 10))
+	query.Set("offset", strconv.Itoa(offset))
+	query.Set("digest", digest)
+	uri.RawQuery = query.Encode()
+	return uri.String()
+}
+
 func (db *DB) mcpChanges(ctx context.Context, basis, since int64, sinceArgument, rawURI string) (map[string]any, error) {
 	result := map[string]any{"basis_tx": basis, "events": []map[string]any{}}
 	ids := []int64{}
@@ -328,19 +485,48 @@ func (db *DB) mcpChanges(ctx context.Context, basis, since int64, sinceArgument,
 	if err != nil {
 		return nil, err
 	}
-	hasMore := len(ids) > mcpResourcePage
-	if hasMore {
-		ids = ids[:mcpResourcePage]
-	}
 	if len(ids) == 0 {
 		return result, nil
 	}
-	events, err := db.EventRecords(ctx, since, ids[len(ids)-1])
-	if err != nil {
-		return nil, err
+	events := make([]map[string]any, 0, min(len(ids), mcpResourcePage))
+	pageBytes := 0
+	consumed := 0
+	position := since
+	for _, tx := range ids[:min(len(ids), mcpResourcePage)] {
+		record, recordErr := db.eventRecordForTx(ctx, tx)
+		if recordErr != nil {
+			return nil, recordErr
+		}
+		raw, canonicalErr := canonicalJSON(record)
+		if canonicalErr != nil {
+			return nil, canonicalErr
+		}
+		if len(raw) > maxMCPChangesPageBytes {
+			if len(events) > 0 {
+				break
+			}
+			eventDigest := sha256.Sum256(raw)
+			digest := hex.EncodeToString(eventDigest[:])
+			event, ok := record["event"].(string)
+			if !ok {
+				return nil, fail(ErrConflict, "oversized transaction %d has no canonical event id", tx)
+			}
+			result["oversized_event"] = map[string]any{
+				"event": event, "event_hash": digest, "bytes": len(raw),
+				"uri": mcpEventResourceURI(event, basis, 0, digest),
+			}
+			position, consumed = tx, consumed+1
+			break
+		}
+		if len(events) > 0 && pageBytes+len(raw) > maxMCPChangesPageBytes {
+			break
+		}
+		events = append(events, record)
+		pageBytes += len(raw)
+		position, consumed = tx, consumed+1
 	}
 	result["events"] = events
-	if !hasMore {
+	if consumed == len(ids) {
 		return result, nil
 	}
 	uri, err := url.Parse(rawURI)
@@ -349,7 +535,7 @@ func (db *DB) mcpChanges(ctx context.Context, basis, since int64, sinceArgument,
 	}
 	cursor, err := encodeMCPResourceCursor(mcpResourceCursor{
 		Version: 1, Resource: "changes", Argument: sinceArgument,
-		Basis: basis, Position: ids[len(ids)-1],
+		Basis: basis, Position: position,
 	})
 	if err != nil {
 		return nil, err

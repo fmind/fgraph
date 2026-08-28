@@ -28,6 +28,7 @@ claude mcp add --scope project fgraph -- fgraph --db ./project.db mcp
 1. Use `recall` for bounded retrieval, `about` for an entity, `why` for provenance, `history` for a timeline, `query` for joins, and `datoms` for explicit pagination.
 1. Preserve the returned `basis_tx` when a later decision depends on that read.
 1. Follow returned cursors or `next_uri` values exactly. Never forge, reuse across requests, or silently restart a stale cursor.
+1. When `changes` returns `oversized_event`, reconstruct it only through that integrity-pinned event URI and its chunk `next_uri` values; use the change `next_uri` separately to continue with later events.
 1. Narrow the request when the server reports an output or work limit.
 
 ## Write workflow

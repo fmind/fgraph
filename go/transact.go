@@ -100,6 +100,9 @@ func (db *DB) Transact(ctx context.Context, data any, options ...TxOption) (resu
 	}
 	config := txOptions{}
 	for _, option := range options {
+		if option == nil {
+			return TxReport{}, fail(ErrType, "transaction option is nil; pass a concrete transaction option")
+		}
 		option(&config)
 	}
 	if db.exec != nil {
@@ -2274,6 +2277,9 @@ func (db *DB) declareWithTxOptions(
 ) (TxReport, error) {
 	config := declareOptions{}
 	for _, option := range options {
+		if option == nil {
+			return TxReport{}, fail(ErrType, "declaration option is nil; pass a concrete Type, Ref, Many, Unique, NoHistory, Dims, Doc, or VectorModel option")
+		}
 		option(&config)
 	}
 	if config.typeName == nil && config.many == nil && config.unique == nil && config.nohistory == nil && config.dims == nil && config.doc == nil && config.vectorModel == nil {

@@ -15,7 +15,7 @@ import tempfile
 import time
 import unicodedata
 import uuid
-from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self, TextIO, cast
@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from fgraph.errors import (
     Conflict,
+    FGraphError,
     FormatError,
     NotFound,
     QueryError,
@@ -72,6 +73,8 @@ GENESIS_TX = 64
 FIRST_USER_ID = 65
 DEFAULT_QUERY_BUDGET = 100_000
 MAX_EVENT_BYTES = 8 * MAX_VALUE_BYTES + 64 * 1024
+# Snapshot receipts repeat the event's created selectors outside event_data.
+MAX_SNAPSHOT_LINE_BYTES = 2 * MAX_EVENT_BYTES + 64 * 1024
 _OMITTED = object()
 GENESIS_EVENT = uuid.UUID("00000000-0000-4000-8000-000000000040")
 _WINDOWS = os.name == "nt"
@@ -107,6 +110,46 @@ def _canonical_event_data(record: Mapping[str, Any]) -> str:
             f"canonical event is {size} bytes; keep one transaction event at or below {MAX_EVENT_BYTES} bytes"
         )
     return data
+
+
+def _bounded_portable_lines(
+    source: str | Iterable[str] | TextIO,
+    *,
+    maximum_bytes: int,
+    description: str,
+) -> Iterator[str]:
+    """Yield LF-delimited records while bounding file reads before allocation."""
+    if isinstance(source, str):
+        raw_lines: Iterable[str] = source.split("\n")
+    else:
+        readline = getattr(source, "readline", None)
+        if callable(readline):
+
+            def text_lines() -> Iterator[str]:
+                while True:
+                    # Two extra characters distinguish exact-cap+LF from an
+                    # oversized ASCII line without scanning the remainder.
+                    raw = readline(maximum_bytes + 2)
+                    if raw == "":
+                        return
+                    yield raw
+
+            raw_lines = text_lines()
+        else:
+            raw_lines = source
+    for line_number, raw in enumerate(raw_lines, start=1):
+        if not isinstance(raw, str):
+            raise FGraphTypeError(f"{description} line {line_number} must be text")
+        payload = raw.removesuffix("\n")
+        try:
+            size = len(payload.encode())
+        except UnicodeEncodeError as exc:
+            raise FGraphTypeError(f"{description} line {line_number} must be valid UTF-8 text") from exc
+        if size > maximum_bytes:
+            raise TooLarge(
+                f"{description} line {line_number} is {size} bytes; keep it at or below {maximum_bytes} portable bytes"
+            )
+        yield raw
 
 
 def _validate_operation_id(value: Any) -> None:
@@ -3455,8 +3498,12 @@ class Db:
             }
         return self._decode_event_data(event, event_hash, receipt["event_data"])
 
-    def event_records(self, since: int = GENESIS_TX, through: int | None = None) -> list[dict[str, Any]]:
-        """Return portable event/1 records after a local transaction cursor."""
+    def _iter_event_records(
+        self,
+        since: int = GENESIS_TX,
+        through: int | None = None,
+    ) -> Generator[tuple[int, dict[str, Any]]]:
+        """Yield local transaction ids and portable records without retaining the page."""
         self._ensure_open()
         if not isinstance(since, int) or isinstance(since, bool) or not GENESIS_TX <= since <= INT64_MAX:
             raise FGraphTypeError(f"event cursor {since!r} is invalid; use a transaction id at least {GENESIS_TX}")
@@ -3467,10 +3514,14 @@ class Db:
             raise FGraphTypeError(f"event through {end!r} is invalid; use a transaction id at least {GENESIS_TX}")
         if self._as_of is not None:
             end = min(end, self._as_of)
-        rows = self._connection.execute(
-            "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx", (since, end)
-        ).fetchall()
-        return [self._event_record_for_tx(int(row["tx"])) for row in rows]
+        rows = self._connection.execute("SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx", (since, end))
+        for row in rows:
+            transaction = int(row["tx"])
+            yield transaction, self._event_record_for_tx(transaction)
+
+    def event_records(self, since: int = GENESIS_TX, through: int | None = None) -> list[dict[str, Any]]:
+        """Return portable event/1 records after a local transaction cursor."""
+        return [record for _transaction, record in self._iter_event_records(since, through)]
 
     def _apply_selector(self, selector: Any, tokens: dict[str, str]) -> Any:
         if isinstance(selector, str):
@@ -3530,7 +3581,7 @@ class Db:
         summary: dict[str, int] | None = None,
     ) -> list[TxReport]:
         self._ensure_writable()
-        lines: Iterable[str] = source.splitlines() if isinstance(source, str) else source
+        lines = _bounded_portable_lines(source, maximum_bytes=MAX_EVENT_BYTES, description="event")
         with self._atomic():
             reports: list[TxReport] = []
 
@@ -3696,12 +3747,7 @@ class Db:
             self._refresh_cache()
             latest = self._latest_tx()
             if latest > cursor:
-                rows = self._connection.execute(
-                    "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx", (cursor, latest)
-                ).fetchall()
-                for row in rows:
-                    transaction = int(row["tx"])
-                    record = self._event_record_for_tx(transaction)
+                for transaction, record in self._iter_event_records(cursor, latest):
                     # The cursor is local transport state; portable records do
                     # not leak file-local transaction identifiers.
                     cursor = transaction
@@ -3983,7 +4029,11 @@ class Db:
         stream_hash = hashlib.sha256()
 
         def emit(record: Mapping[str, Any]) -> str:
-            line = _canonical_json_document(record) + "\n"
+            encoded = _canonical_json_document(record)
+            size = len(encoded.encode())
+            if size > MAX_SNAPSHOT_LINE_BYTES:
+                raise TooLarge(f"snapshot record is {size} bytes; keep it at or below {MAX_SNAPSHOT_LINE_BYTES} bytes")
+            line = encoded + "\n"
             stream_hash.update(line.encode())
             return line
 
@@ -4099,55 +4149,37 @@ class Db:
         self._ensure_writable()
         from fgraph.jsonio import loads
 
-        raw_lines = source.splitlines() if isinstance(source, str) else list(source)
-        lines = [line for line in raw_lines if line.strip()]
-        if len(lines) < 2:
-            raise FGraphTypeError("snapshot is truncated; header and footer are required")
-        parsed = [loads(line, context=f"snapshot line {index}") for index, line in enumerate(lines, start=1)]
-        header = parsed[0]
-        footer = parsed[-1]
+        raw_lines = _bounded_portable_lines(
+            source,
+            maximum_bytes=MAX_SNAPSHOT_LINE_BYTES,
+            description="snapshot",
+        )
+
+        def records() -> Iterator[tuple[int, Any]]:
+            index = 0
+            for raw in raw_lines:
+                if not raw.strip():
+                    continue
+                index += 1
+                yield index, loads(raw, context=f"snapshot line {index}")
+
+        stream = records()
+        try:
+            _header_index, header = next(stream)
+        except StopIteration as exc:
+            raise FGraphTypeError("snapshot is truncated; header and footer are required") from exc
         if (
             not isinstance(header, Mapping)
             or header.get("fgraph") != "snapshot/1"
             or header.get("format") != FORMAT_VERSION
-            or not isinstance(footer, Mapping)
-            or footer.get("fgraph") != "end"
-            or not isinstance(footer.get("sha256"), str)
         ):
             raise FGraphTypeError("snapshot header/footer is invalid or targets another format version")
-        canonical_body = [_canonical_json_document(record) for record in parsed[:-1]]
-        expected_hash = hashlib.sha256(("\n".join(canonical_body) + "\n").encode()).hexdigest()
-        if footer["sha256"] != expected_hash:
-            raise Conflict("snapshot digest does not match its body; reject the truncated or modified stream")
-        if (
-            not isinstance(footer.get("receipts"), int)
-            or isinstance(footer.get("receipts"), bool)
-            or not isinstance(footer.get("facts"), int)
-            or isinstance(footer.get("facts"), bool)
-            or int(footer["receipts"]) < 0
-            or int(footer["facts"]) < 0
-        ):
-            raise FGraphTypeError("snapshot footer counts must be non-negative integers")
-
-        body = parsed[1:-1]
-        receipt_wrappers = [record for record in body if isinstance(record, Mapping) and set(record) == {"receipt"}]
-        fact_wrappers = [record for record in body if isinstance(record, Mapping) and set(record) == {"fact"}]
-        if (
-            len(receipt_wrappers) != int(footer["receipts"])
-            or len(fact_wrappers) != int(footer["facts"])
-            or len(receipt_wrappers) + len(fact_wrappers) != len(body)
-        ):
-            raise FGraphTypeError("snapshot footer counts or record kinds do not match the body")
-        expected_basis: Any = str(GENESIS_EVENT)
-        if receipt_wrappers:
-            last_receipt = receipt_wrappers[-1]["receipt"]
-            expected_basis = last_receipt.get("event") if isinstance(last_receipt, Mapping) else None
-        if header.get("basis") != expected_basis:
-            raise Conflict("snapshot header basis does not match its final transaction receipt")
         try:
             created_at = int(encode({"instant": header.get("created_at")}).logical)
         except FGraphTypeError as exc:
             raise FGraphTypeError("snapshot created_at must be representable integer microseconds") from exc
+        stream_hash = hashlib.sha256()
+        stream_hash.update((_canonical_json_document(header) + "\n").encode())
 
         with self._atomic():
             if self._latest_tx() != GENESIS_TX:
@@ -4177,7 +4209,9 @@ class Db:
             events: dict[str, int] = {}
             receipt_metadata: dict[int, tuple[int, int]] = {}
             next_id = FIRST_USER_ID
-            for wrapper in receipt_wrappers:
+
+            def restore_receipt(wrapper: Mapping[str, Any]) -> str:
+                nonlocal next_id
                 receipt = wrapper["receipt"]
                 required = {
                     "event",
@@ -4206,6 +4240,45 @@ class Db:
                         self._validate_name(key[1])
                     reserved.append((selector, key, next_id))
                     next_id += 1
+                event_hash = receipt["event_hash"]
+                event_data = receipt["event_data"]
+                request_hash = receipt["request_hash"]
+                operation_id = receipt["operation_id"]
+                if not isinstance(event_hash, str) or re.fullmatch(r"[0-9a-f]{64}", event_hash) is None:
+                    raise FGraphTypeError("snapshot receipt event_hash must be 32-byte lowercase hex")
+                try:
+                    at = int(encode({"instant": receipt["at"]}).logical)
+                    origin_at = int(encode({"instant": receipt["origin_at"]}).logical)
+                except FGraphTypeError as exc:
+                    raise FGraphTypeError("snapshot receipt at/origin_at must be integer microseconds") from exc
+                stored_event_data: str | None
+                if event_data is None:
+                    stored_event_data = None
+                elif isinstance(event_data, Mapping):
+                    stored_event_data = _canonical_event_data(event_data)
+                    try:
+                        authenticated_event = self._decode_event_data(
+                            event_text,
+                            bytes.fromhex(event_hash),
+                            stored_event_data,
+                        )
+                    except FormatError as exc:
+                        raise FGraphTypeError(f"snapshot receipt event_data is invalid: {exc}") from exc
+                    if authenticated_event["at"] != origin_at:
+                        raise Conflict("snapshot receipt origin_at disagrees with its authenticated event timestamp")
+                    if _canonical_json_document(authenticated_event["created"]) != _canonical_json_document(
+                        receipt["created"]
+                    ):
+                        raise Conflict("snapshot receipt created identities disagree with its authenticated event")
+                else:
+                    raise FGraphTypeError("snapshot receipt event_data must be an event object or null")
+                _validate_operation_id(operation_id)
+                if request_hash is not None and (
+                    not isinstance(request_hash, str) or re.fullmatch(r"[0-9a-f]{64}", request_hash) is None
+                ):
+                    raise FGraphTypeError("snapshot receipt request_hash must be null or 32-byte lowercase hex")
+                if (operation_id is None) != (request_hash is None):
+                    raise FGraphTypeError("snapshot operation_id and request_hash must both be null or both present")
                 transaction = next_id
                 next_id += 1
                 for selector, key, identifier in reserved:
@@ -4222,42 +4295,6 @@ class Db:
                 )
                 identities[event_key] = transaction
                 events[event_text] = transaction
-                event_hash = receipt["event_hash"]
-                event_data = receipt["event_data"]
-                request_hash = receipt["request_hash"]
-                operation_id = receipt["operation_id"]
-                if not isinstance(event_hash, str) or re.fullmatch(r"[0-9a-f]{64}", event_hash) is None:
-                    raise FGraphTypeError("snapshot receipt event_hash must be 32-byte lowercase hex")
-                stored_event_data: str | None
-                if event_data is None:
-                    stored_event_data = None
-                elif isinstance(event_data, Mapping):
-                    stored_event_data = _canonical_event_data(event_data)
-                    try:
-                        self._decode_event_data(
-                            event_text,
-                            bytes.fromhex(event_hash),
-                            stored_event_data,
-                        )
-                    except FormatError as exc:
-                        raise FGraphTypeError(f"snapshot receipt event_data is invalid: {exc}") from exc
-                else:
-                    raise FGraphTypeError("snapshot receipt event_data must be an event object or null")
-                if operation_id is not None and (
-                    not isinstance(operation_id, str) or not 1 <= len(operation_id.encode()) <= 512
-                ):
-                    raise FGraphTypeError("snapshot receipt operation_id must be null or 1-512 UTF-8 bytes")
-                if request_hash is not None and (
-                    not isinstance(request_hash, str) or re.fullmatch(r"[0-9a-f]{64}", request_hash) is None
-                ):
-                    raise FGraphTypeError("snapshot receipt request_hash must be null or 32-byte lowercase hex")
-                if (operation_id is None) != (request_hash is None):
-                    raise FGraphTypeError("snapshot operation_id and request_hash must both be null or both present")
-                try:
-                    at = int(encode({"instant": receipt["at"]}).logical)
-                    origin_at = int(encode({"instant": receipt["origin_at"]}).logical)
-                except FGraphTypeError as exc:
-                    raise FGraphTypeError("snapshot receipt at/origin_at must be integer microseconds") from exc
                 receipt_metadata[transaction] = (at, origin_at)
                 self._connection.execute(
                     "INSERT INTO fgraph_events(tx,event_hash,event_data,operation_id,request_hash) VALUES (?,?,?,?,?)",
@@ -4269,6 +4306,7 @@ class Db:
                         None if request_hash is None else bytes.fromhex(request_hash),
                     ),
                 )
+                return event_text
 
             def resolve_selector(selector: Any) -> int:
                 key = self._snapshot_selector_key(selector)
@@ -4277,13 +4315,16 @@ class Db:
                     raise NotFound(f"snapshot fact references unknown identity {key[0]}:{key[1]}")
                 return identifier
 
-            for wrapper in fact_wrappers:
+            def restore_fact(wrapper: Mapping[str, Any]) -> None:
                 fact = wrapper["fact"]
                 if not isinstance(fact, list) or len(fact) != 6 or not isinstance(fact[3], str):
                     raise FGraphTypeError(
                         "snapshot fact must be [entity,attribute,value,tag,assert-event,retract-event]"
                     )
                 entity = resolve_selector(fact[0])
+                if not isinstance(fact[1], str):
+                    raise FGraphTypeError("snapshot fact attribute must be a valid named attribute")
+                self._validate_attribute(fact[1])
                 attribute = resolve_selector(fact[1])
                 event_key = self._snapshot_selector_key({"eid": fact[4]})
                 transaction = events.get(event_key[1])
@@ -4307,6 +4348,63 @@ class Db:
                         raise Conflict("snapshot retraction event is unknown or not later than assertion")
                     self._connection.execute("UPDATE fgraph_facts SET rx=? WHERE id=?", (retraction, inserted["id"]))
                     self._connection.execute("DELETE FROM fgraph_fts WHERE rowid=?", (inserted["id"],))
+
+            footer: Mapping[str, Any] | None = None
+            receipt_count = 0
+            fact_count = 0
+            facts_started = False
+            expected_basis = str(GENESIS_EVENT)
+            deferred_error: FGraphError | None = None
+            for _record_index, record in stream:
+                if footer is not None:
+                    raise FGraphTypeError("snapshot footer must be the final non-blank record")
+                if isinstance(record, Mapping) and record.get("fgraph") == "end":
+                    footer = record
+                    continue
+                stream_hash.update((_canonical_json_document(record) + "\n").encode())
+                if isinstance(record, Mapping) and set(record) == {"receipt"}:
+                    if facts_started:
+                        raise FGraphTypeError("snapshot receipt records must precede fact records")
+                    receipt_count += 1
+                    receipt = record["receipt"]
+                    expected_basis = receipt.get("event") if isinstance(receipt, Mapping) else ""
+                    if deferred_error is None:
+                        try:
+                            expected_basis = restore_receipt(record)
+                        except FGraphError as exc:
+                            deferred_error = exc
+                    continue
+                if isinstance(record, Mapping) and set(record) == {"fact"}:
+                    facts_started = True
+                    fact_count += 1
+                    if deferred_error is None:
+                        try:
+                            restore_fact(record)
+                        except FGraphError as exc:
+                            deferred_error = exc
+                    continue
+                raise FGraphTypeError("snapshot footer counts or record kinds do not match the body")
+            if footer is None:
+                raise FGraphTypeError("snapshot is truncated; header and footer are required")
+            if not isinstance(footer.get("sha256"), str):
+                raise FGraphTypeError("snapshot header/footer is invalid or targets another format version")
+            if footer["sha256"] != stream_hash.hexdigest():
+                raise Conflict("snapshot digest does not match its body; reject the truncated or modified stream")
+            if (
+                not isinstance(footer.get("receipts"), int)
+                or isinstance(footer.get("receipts"), bool)
+                or not isinstance(footer.get("facts"), int)
+                or isinstance(footer.get("facts"), bool)
+                or int(footer["receipts"]) < 0
+                or int(footer["facts"]) < 0
+            ):
+                raise FGraphTypeError("snapshot footer counts must be non-negative integers")
+            if receipt_count != int(footer["receipts"]) or fact_count != int(footer["facts"]):
+                raise FGraphTypeError("snapshot footer counts or record kinds do not match the body")
+            if header.get("basis") != expected_basis:
+                raise Conflict("snapshot header basis does not match its final transaction receipt")
+            if deferred_error is not None:
+                raise deferred_error
 
             self._connection.execute("UPDATE fgraph_meta SET value=? WHERE key='next_id'", (next_id,))
             self._refresh_cache(force=True)
@@ -4952,6 +5050,16 @@ class Db:
         )
         if missing_registry:
             fatal.append(f"facts reference missing identity registry rows: {missing_registry}")
+        invalid_fact_attributes = 0
+        for row in self._connection.execute(
+            "SELECT i.name,count(*) AS facts FROM fgraph_facts f "
+            "LEFT JOIN fgraph_ids i ON i.id=f.a GROUP BY f.a,i.name ORDER BY f.a"
+        ):
+            name = row["name"]
+            if not isinstance(name, str) or ATTRIBUTE_PATTERN.fullmatch(name) is None:
+                invalid_fact_attributes += int(row["facts"])
+        if invalid_fact_attributes:
+            fatal.append(f"invalid fact attributes: {invalid_fact_attributes}")
         identities_from_future = int(
             self._connection.execute(
                 "SELECT count(*) FROM fgraph_facts f "
@@ -5035,11 +5143,11 @@ class Db:
                 event_hash = bytes(event_row["event_hash"])
                 request_hash = None if event_row["request_hash"] is None else bytes(event_row["request_hash"])
                 operation_id = event_row["operation_id"]
-                operation_valid = operation_id is None or (
-                    isinstance(operation_id, str)
-                    and 1 <= len(operation_id.encode()) <= 512
-                    and not any(ord(character) < 32 or ord(character) == 127 for character in operation_id)
-                )
+                try:
+                    _validate_operation_id(operation_id)
+                    operation_valid = True
+                except FGraphTypeError:
+                    operation_valid = False
                 receipt_fields_valid = (
                     len(event_hash) == 32
                     and operation_valid

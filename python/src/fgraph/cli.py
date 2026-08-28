@@ -112,25 +112,14 @@ def _read_argument(value: str) -> str:
     return value
 
 
-def _input_text(source: str, *, context: str) -> str:
-    if source == "-":
-        return sys.stdin.read()
-    try:
-        return Path(source).read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise fgraph.FormatError(
-            f"{context} file {source!r} cannot be read as UTF-8; check the path and permissions"
-        ) from exc
-
-
 @contextmanager
-def _input_lines(source: str, *, context: str) -> Iterator[Iterator[str]]:
+def _input_lines(source: str, *, context: str) -> Iterator[TextIO]:
     if source == "-":
-        yield iter(sys.stdin)
+        yield sys.stdin
         return
     try:
         with Path(source).open(encoding="utf-8") as stream:
-            yield iter(stream)
+            yield stream
     except (OSError, UnicodeError) as exc:
         raise fgraph.FormatError(
             f"{context} file {source!r} cannot be read as UTF-8; check the path and permissions"
@@ -616,9 +605,7 @@ def apply_command(
 def snapshot_command(db: DbOption = None) -> None:
     """Write a checksummed exact logical snapshot to stdout."""
     with _open(db, read_only=True) as graph:
-        output = graph.snapshot()
-        if output is not None:
-            typer.echo(output, nl=False)
+        graph.snapshot(sys.stdout)
 
 
 @app.command("restore")
@@ -628,8 +615,8 @@ def restore_command(
     json_output: JsonOption = False,
 ) -> None:
     """Restore a snapshot/1 stream into a pristine database."""
-    with _open(db) as graph:
-        graph.restore(_input_text(source, context="snapshot"))
+    with _input_lines(source, context="snapshot") as lines, _open(db) as graph:
+        graph.restore(lines)
         _emit({"ok": True, "basis_tx": graph.schema()["basis_tx"]}, json_output)
 
 
@@ -685,7 +672,7 @@ def tail(
             for record in graph.follow(since):
                 typer.echo(_canonical_json_document(record))
         else:
-            for record in graph.event_records(since):
+            for _transaction, record in graph._iter_event_records(since):  # noqa: SLF001
                 typer.echo(_canonical_json_document(record))
 
 

@@ -189,6 +189,11 @@ def _core_rows(database: Path) -> list[list[Any]]:
         connection.close()
 
 
+def _ndjson_records(text: str) -> list[Any]:
+    # NDJSON is delimited only by LF; Unicode line separators are valid JSON string data.
+    return [json.loads(line) for line in text.split("\n") if line]
+
+
 def _run_runtime(runtime: str, command: Sequence[str], seed: int, trace: bytes, directory: Path) -> dict[str, Any]:
     database = directory / f"{seed}-{runtime}.db"
     common = ["--db", str(database), "--json"]
@@ -250,9 +255,9 @@ def _run_runtime(runtime: str, command: Sequence[str], seed: int, trace: bytes, 
     actual["info"]["size"] = "<runtime-file-size>"
     event_bytes = _invoke(command, ["tail", "--since", "64", "--db", str(database)]).stdout
     event_text = event_bytes.decode()
-    actual["events"] = [json.loads(line) for line in event_text.splitlines() if line]
+    actual["events"] = _ndjson_records(event_text)
     snapshot_bytes = _invoke(command, ["snapshot", "--db", str(database)]).stdout
-    actual["snapshot"] = [json.loads(line) for line in snapshot_bytes.decode().splitlines() if line]
+    actual["snapshot"] = _ndjson_records(snapshot_bytes.decode())
     actual["core"] = _core_rows(database)
 
     first_entity_report = add_reports[3]
@@ -273,7 +278,7 @@ def _run_runtime(runtime: str, command: Sequence[str], seed: int, trace: bytes, 
     event_path.write_bytes(event_bytes)
     _invoke(command, ["apply", str(event_path), "--db", str(applied), "--json"])
     applied_events = _invoke(command, ["tail", "--since", "64", "--db", str(applied)]).stdout.decode()
-    actual["applied_events"] = [json.loads(line) for line in applied_events.splitlines() if line]
+    actual["applied_events"] = _ndjson_records(applied_events)
     actual["applied_core"] = _core_rows(applied)
     if actual["applied_events"] != actual["events"]:
         raise AssertionError(f"seed={seed} runtime={runtime} event apply changed the portable stream")
@@ -283,7 +288,7 @@ def _run_runtime(runtime: str, command: Sequence[str], seed: int, trace: bytes, 
     snapshot_path.write_bytes(snapshot_bytes)
     _invoke(command, ["restore", str(snapshot_path), "--db", str(restored), "--json"])
     restored_snapshot = _invoke(command, ["snapshot", "--db", str(restored)]).stdout.decode()
-    actual["restored_snapshot"] = [json.loads(line) for line in restored_snapshot.splitlines() if line]
+    actual["restored_snapshot"] = _ndjson_records(restored_snapshot)
     actual["restored_core"] = _core_rows(restored)
     if actual["restored_snapshot"] != actual["snapshot"] or actual["restored_core"] != actual["core"]:
         raise AssertionError(f"seed={seed} runtime={runtime} snapshot restore differs")

@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const followBatchSize = 100
+
 func (db *DB) atTx(tx int64) *DB {
 	return &DB{store: db.store, asOf: &tx, exec: db.exec}
 }
@@ -478,18 +480,8 @@ func (db *DB) Follow(ctx context.Context, options FollowOptions) <-chan FollowEv
 			if ctx.Err() != nil {
 				return
 			}
-			transactions, err := db.transactionIDsAfter(ctx, since)
-			if err != nil {
-				if ctx.Err() == nil {
-					select {
-					case output <- FollowEvent{Err: err}:
-					case <-ctx.Done():
-					}
-				}
-				return
-			}
-			for _, tx := range transactions {
-				record, err := db.eventRecordForTx(ctx, tx)
+			for {
+				transactions, err := db.transactionIDsAfter(ctx, since)
 				if err != nil {
 					if ctx.Err() == nil {
 						select {
@@ -499,12 +491,27 @@ func (db *DB) Follow(ctx context.Context, options FollowOptions) <-chan FollowEv
 					}
 					return
 				}
-				select {
-				case output <- FollowEvent{Tx: tx, Record: record}:
-				case <-ctx.Done():
-					return
+				for _, tx := range transactions {
+					record, err := db.eventRecordForTx(ctx, tx)
+					if err != nil {
+						if ctx.Err() == nil {
+							select {
+							case output <- FollowEvent{Err: err}:
+							case <-ctx.Done():
+							}
+						}
+						return
+					}
+					select {
+					case output <- FollowEvent{Tx: tx, Record: record}:
+					case <-ctx.Done():
+						return
+					}
+					since = tx
 				}
-				since = tx
+				if len(transactions) < followBatchSize {
+					break
+				}
 			}
 			select {
 			case <-ticker.C:
@@ -519,7 +526,7 @@ func (db *DB) Follow(ctx context.Context, options FollowOptions) <-chan FollowEv
 func (db *DB) transactionIDsAfter(ctx context.Context, since int64) ([]int64, error) {
 	transactions := []int64{}
 	err := db.withRead(ctx, func(runner sqlRunner) (resultErr error) {
-		rows, err := runner.QueryContext(ctx, `SELECT tx FROM fgraph_events WHERE tx>? ORDER BY tx`, since)
+		rows, err := runner.QueryContext(ctx, `SELECT tx FROM fgraph_events WHERE tx>? ORDER BY tx LIMIT ?`, since, followBatchSize)
 		if err != nil {
 			return wrap(ErrFormat, err, "cannot read committed transactions after %d", since)
 		}

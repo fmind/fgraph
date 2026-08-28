@@ -89,6 +89,48 @@ describe("doctor physical value validation", () => {
     expect(db._connection.serialize()).toEqual(before);
   });
 
+  it("rejects anonymous identities used as fact attributes", () => {
+    using db = connect(":memory:", { clock: CLOCK });
+    const report = db.transact([
+      { id: "subject", "item/value": 1 },
+      { "anonymous/value": 2 },
+    ]);
+    const anonymous = db._connection
+      .prepare<[], { id: bigint }>(
+        "SELECT id FROM fgraph_ids WHERE name IS NULL AND id<>created_tx ORDER BY id LIMIT 1",
+      )
+      .get();
+    if (anonymous === undefined) throw new Error("anonymous identity missing");
+    db._connection
+      .prepare(
+        "UPDATE fgraph_facts SET a=? WHERE tx=? AND a=(SELECT id FROM fgraph_ids WHERE name='item/value')",
+      )
+      .run(anonymous.id, report.tx);
+
+    expect(db.doctor()).toMatchObject({
+      ok: false,
+      problems: expect.arrayContaining(["invalid fact attributes: 1"]),
+    });
+    expect(() => db.doctor({ repair: true })).toThrowError(FormatError);
+  });
+
+  it("rejects persisted operation ids containing Unicode controls", () => {
+    using db = connect(":memory:", { clock: CLOCK });
+    const report = db.transact(
+      { id: "subject", "item/value": 1 },
+      { operationId: "valid-operation" },
+    );
+    db._connection
+      .prepare("UPDATE fgraph_events SET operation_id=? WHERE tx=?")
+      .run("\u0080", report.tx);
+
+    expect(db.doctor()).toMatchObject({
+      ok: false,
+      problems: expect.arrayContaining(["malformed event receipts: 1"]),
+    });
+    expect(() => db.doctor({ repair: true })).toThrowError(FormatError);
+  });
+
   it("rejects a mutated genesis fact without mutation", () => {
     using db = connect(":memory:", { clock: CLOCK });
     db._connection.prepare("UPDATE fgraph_facts SET e=2 WHERE id=2").run();

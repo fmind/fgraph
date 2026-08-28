@@ -49,4 +49,8 @@ updates:
     groups:
       typescript:
         patterns: ["*"]
+    # Node types intentionally track the minimum supported Node major.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 2

@@ -450,11 +450,8 @@ func TestQueryBudgetValidationAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	evaluator := &queryEvaluator{
-		ctx: ctx,
-		db:  &DB{store: &store{names: map[string]int64{"item/value": FirstUserID}}},
-		facts: []queryFact{{
-			e: FirstUserID, a: "item/value", cell: cell{tag: TagInt, value: int64(1)},
-		}},
+		ctx:    ctx,
+		db:     &DB{store: &store{names: map[string]int64{"item/value": FirstUserID}}},
 		budget: DefaultQueryBudget,
 	}
 	if _, err := evaluator.evalPattern([]any{"?e", "item/value", "_"}, []binding{{}}); !errors.Is(err, context.Canceled) {

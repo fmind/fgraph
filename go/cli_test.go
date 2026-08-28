@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,6 +41,28 @@ func TestMain(m *testing.M) {
 	case "slow":
 		time.Sleep(time.Second)
 		output = []byte("[1,0]\n")
+	case "descendant":
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			exitCode = 2
+			break
+		}
+		// #nosec G204 -- this mode intentionally relaunches the current test binary.
+		child := exec.Command(executable)
+		child.Stdout = os.Stdout
+		child.Env = os.Environ()
+		for index, value := range child.Env {
+			if strings.HasPrefix(value, embeddingHelperModeEnv+"=") {
+				child.Env[index] = embeddingHelperModeEnv + "=pipe-holder"
+			}
+		}
+		if err := child.Start(); err != nil {
+			exitCode = 2
+		} else {
+			output = []byte("[1,0]\n")
+		}
+	case "pipe-holder":
+		time.Sleep(time.Second)
 	case "oversize":
 		output = bytes.Repeat([]byte("0"), (1<<20)+1)
 	default:
@@ -389,6 +412,17 @@ func TestCommandEmbedderFailuresAreTypedAndNoShell(t *testing.T) {
 	defer cancel()
 	if _, err := commandEmbedder(slow)(timeoutCtx, "text"); !errors.Is(err, ErrType) {
 		t.Fatalf("timed-out embedder error = %v", err)
+	}
+
+	descendant := embeddingHelperCommand(t, "descendant")
+	descendantCtx, descendantCancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer descendantCancel()
+	started := time.Now()
+	if _, err := commandEmbedder(descendant)(descendantCtx, "text"); !errors.Is(err, ErrType) {
+		t.Fatalf("descendant-held stdout error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("descendant-held stdout returned after %s; timeout must remain bounded", elapsed)
 	}
 
 	oversize := embeddingHelperCommand(t, "oversize")

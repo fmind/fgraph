@@ -704,6 +704,7 @@ describe("store defensive and temporal paths", () => {
         },
       } as never),
     ).toBeUndefined();
+    expect(writes).toHaveLength(2);
     expect(writes.join("")).toContain('"fgraph":"event/1"');
 
     const firstTx = first.tx as number;

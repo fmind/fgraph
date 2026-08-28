@@ -12,6 +12,39 @@ import fgraph
 from fgraph.values import canonical_json
 
 
+class _StreamingEventCursor:
+    def __init__(self, cursor: Any, owner: _StreamingEventConnection) -> None:
+        self._cursor = cursor
+        self._owner = owner
+
+    def __iter__(self) -> Any:
+        for index, row in enumerate(self._cursor):
+            if index and not self._owner.release_next:
+                raise AssertionError("event transaction rows were consumed before the previous event was yielded")
+            self._owner.release_next = False
+            self._owner.rows_seen += 1
+            yield row
+
+    def fetchall(self) -> list[Any]:
+        raise AssertionError("event transaction rows were eagerly materialized")
+
+
+class _StreamingEventConnection:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+        self.release_next = False
+        self.rows_seen = 0
+
+    def execute(self, sql: str, parameters: Any = ()) -> Any:
+        cursor = self._connection.execute(sql, parameters)
+        if sql.startswith("SELECT tx FROM fgraph_events WHERE tx>?"):
+            return _StreamingEventCursor(cursor, self)
+        return cursor
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+
 def test_time_travel_history_diff_changes_and_why(db: fgraph.Db) -> None:
     first = db.transact({"id": "ada", "person/city": "London"}, source="book", by="reader")
     second = db.transact({"id": "ada", "person/city": "Lyon"}, source="chat")
@@ -97,6 +130,33 @@ def test_follow_yields_event_records(db: fgraph.Db) -> None:
     assert record["event"] == report.event
     assert "tx" not in record
     assert record["asserted"] == [["ada", "person/name", "Ada", "text"]]
+
+
+def test_event_iterator_and_follow_consume_transaction_rows_incrementally(
+    db: fgraph.Db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = db.transact({"id": "stream/first", "stream/value": 1})
+    second = db.transact({"id": "stream/second", "stream/value": 2})
+    original = db._connection  # noqa: SLF001
+
+    guarded = _StreamingEventConnection(original)
+    monkeypatch.setattr(db, "_connection", guarded)
+    records = db._iter_event_records(64)  # noqa: SLF001
+    assert next(records)[0] == first.tx
+    assert guarded.rows_seen == 1
+    guarded.release_next = True
+    assert next(records)[0] == second.tx
+    records.close()
+
+    guarded = _StreamingEventConnection(original)
+    monkeypatch.setattr(db, "_connection", guarded)
+    followed = db.follow(64, interval=0.001)
+    assert next(followed)["event"] == first.event
+    assert guarded.rows_seen == 1
+    guarded.release_next = True
+    assert next(followed)["event"] == second.event
+    followed.close()
 
 
 def test_keyword_vector_hybrid_filter_and_expansion(db: fgraph.Db) -> None:

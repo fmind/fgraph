@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,42 @@ from fgraph.mcp_server import create_server
 from fgraph.values import INT64_MAX, canonical_json
 
 runner = CliRunner()
+
+
+class _BudgetGuardedCursor:
+    def __init__(self, cursor: Any, owner: _BudgetGuardedConnection) -> None:
+        self._cursor = cursor
+        self._owner = owner
+
+    def __iter__(self) -> Iterator[Any]:
+        for row in self._cursor:
+            self._owner.rows_seen += 1
+            if self._owner.rows_seen > self._owner.maximum_rows:
+                raise AssertionError("query consumed candidates beyond its remaining work budget")
+            yield row
+
+    def fetchall(self) -> list[Any]:
+        raise AssertionError("query eagerly materialized its candidate cursor")
+
+
+class _BudgetGuardedConnection:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        guarded: Callable[[str], bool],
+        maximum_rows: int,
+    ) -> None:
+        self._connection = connection
+        self._guarded = guarded
+        self.maximum_rows = maximum_rows
+        self.rows_seen = 0
+
+    def execute(self, sql: str, parameters: Any = ()) -> Any:
+        cursor = self._connection.execute(sql, parameters)
+        return _BudgetGuardedCursor(cursor, self) if self._guarded(sql) else cursor
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
 
 
 def _physical_state(db: fgraph.Db) -> dict[str, list[tuple[Any, ...]]]:
@@ -199,6 +235,43 @@ def test_query_budget_is_connection_scoped_and_counts_candidate_pairs() -> None:
         graph.transact({"id": "two", "item/value": 2})
         with pytest.raises(fgraph.TooLarge, match="work budget"):
             graph.q(query)
+
+
+def test_query_budget_bounds_general_candidate_cursor_consumption(monkeypatch: pytest.MonkeyPatch) -> None:
+    with fgraph.connect(":memory:", query_budget=1) as graph:
+        graph.transact([{"id": f"item/{index}", "item/value": index} for index in range(3)])
+        guarded = _BudgetGuardedConnection(
+            graph._connection,  # noqa: SLF001
+            lambda sql: sql.startswith("SELECT * FROM fgraph_facts WHERE"),
+            maximum_rows=2,
+        )
+        monkeypatch.setattr(graph, "_connection", guarded)
+
+        with pytest.raises(fgraph.TooLarge, match="work budget"):
+            graph.q({"find": ["?e"], "where": [["?e", "item/value", "_"]]})
+
+        assert guarded.rows_seen == 2
+
+
+def test_query_budget_bounds_batched_candidate_cursor_consumption(monkeypatch: pytest.MonkeyPatch) -> None:
+    with fgraph.connect(":memory:", query_budget=4) as graph:
+        graph.transact([{"id": f"item/{index}", "item/key": index, "item/name": f"Item {index}"} for index in range(3)])
+        guarded = _BudgetGuardedConnection(
+            graph._connection,  # noqa: SLF001
+            lambda sql: " e IN (" in sql,
+            maximum_rows=2,
+        )
+        monkeypatch.setattr(graph, "_connection", guarded)
+
+        with pytest.raises(fgraph.TooLarge, match="work budget"):
+            graph.q(
+                {
+                    "find": ["?e", "?name"],
+                    "where": [["?e", "item/key", "_"], ["?e", "item/name", "?name"]],
+                }
+            )
+
+        assert guarded.rows_seen == 2
 
 
 def test_query_budget_uses_set_semantics_between_patterns() -> None:

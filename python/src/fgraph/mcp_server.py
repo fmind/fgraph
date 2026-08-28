@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import signal
 import subprocess
@@ -22,7 +23,7 @@ from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.types import ToolAnnotations
 
 from fgraph._embed_runner import START_ERROR
-from fgraph.errors import FGraphError, ReadOnly, TooLarge
+from fgraph.errors import Conflict, FGraphError, ReadOnly, TooLarge
 from fgraph.errors import TypeError as FGraphTypeError
 from fgraph.models import TxReport
 from fgraph.store import GENESIS_TX, Db
@@ -33,6 +34,8 @@ _EMBED_TIMEOUT_MESSAGE = "embed command timed out after 60 seconds; use a bounde
 _MAX_TOOL_ITEMS = 100
 _MAX_ENTITY_ATTRIBUTES = 32
 _MAX_RESPONSE_BYTES = 256 * 1024
+_CHANGES_PAGE_BYTES = 192 * 1024
+_EVENT_CHUNK_BYTES = 128 * 1024
 
 
 def _tool_errors[**P, R](handler: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
@@ -178,6 +181,62 @@ def _continued_resource_uri(authority: str, cursor: str, *, path: str | None = N
     query = [(name, str(value)) for name, value in arguments.items() if value is not None]
     query.append(("cursor", cursor))
     return f"fgraph://{authority}{suffix}?{urlencode(query)}"
+
+
+def _resource_integer(value: Any, name: str, *, minimum: int, maximum: int) -> int:
+    if not isinstance(value, str) or not value.isascii() or not value.isdigit():
+        raise FGraphTypeError(f"event {name} must be a canonical decimal integer")
+    parsed = int(value)
+    if value != str(parsed) or not minimum <= parsed <= maximum:
+        raise FGraphTypeError(f"event {name} is outside its valid range")
+    return parsed
+
+
+def _event_coordinates(db: Db, event: Any, basis: Any, offset: Any, digest: Any) -> tuple[str, int, int, str]:
+    if not isinstance(event, str):
+        raise FGraphTypeError("event id must be a canonical RFC 4122 UUID")
+    try:
+        parsed_event = uuid.UUID(event)
+    except ValueError as exc:
+        raise FGraphTypeError("event id must be a canonical RFC 4122 UUID") from exc
+    if event != str(parsed_event) or parsed_event.variant != uuid.RFC_4122:
+        raise FGraphTypeError("event id must be a canonical RFC 4122 UUID")
+    pinned_basis = _resource_integer(basis, "basis", minimum=GENESIS_TX, maximum=_basis(db))
+    basis_row = db._connection.execute(  # noqa: SLF001
+        "SELECT 1 FROM fgraph_events WHERE tx=?",
+        (pinned_basis,),
+    ).fetchone()
+    if basis_row is None:
+        raise FGraphTypeError("event basis must identify a transaction receipt")
+    chunk_offset = _resource_integer(offset, "offset", minimum=0, maximum=INT64_MAX)
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise FGraphTypeError("event digest must be 32-byte lowercase hexadecimal")
+    return event, pinned_basis, chunk_offset, digest
+
+
+def _event_resource_uri(event: str, basis: int, offset: int, digest: str) -> str:
+    return f"fgraph://event/{quote(event, safe='')}?" + urlencode({"basis": basis, "offset": offset, "digest": digest})
+
+
+def _event_payload(db: Db, event: str, basis: int, digest: str) -> bytes:
+    row = db._connection.execute(  # noqa: SLF001
+        "SELECT ev.event_hash,ev.event_data FROM fgraph_events ev "
+        "JOIN fgraph_ids i ON i.id=ev.tx WHERE i.gid=? AND ev.tx<=?",
+        (uuid.UUID(event).bytes, basis),
+    ).fetchone()
+    if row is None:
+        raise Conflict(f"event {event!r} is not visible at basis {basis}")
+    event_hash = bytes(row["event_hash"])
+    if len(event_hash) != 32 or digest != event_hash.hex():
+        raise Conflict("event digest does not match the pinned event receipt")
+    if row["event_data"] is None:
+        raise Conflict("event payload is unavailable because the event was excised")
+    db._decode_event_data(event, event_hash, row["event_data"])  # noqa: SLF001
+    return str(row["event_data"]).encode()
 
 
 def _schema_page(
@@ -757,6 +816,37 @@ def create_server(
         return _resource_result(receipt)
 
     @server.resource(
+        "fgraph://event/{event}{?basis,offset,digest}",
+        name="fgraph event",
+        description="One basis- and digest-pinned canonical event payload in bounded byte chunks.",
+        mime_type="application/json",
+    )
+    @_resource_errors
+    async def event_resource(
+        event: str,
+        basis: str = "",
+        offset: str = "0",
+        digest: str = "",
+    ) -> dict[str, Any]:
+        event, pinned_basis, chunk_offset, digest = _event_coordinates(db, event, basis, offset, digest)
+        payload = _event_payload(db, event, pinned_basis, digest)
+        if chunk_offset >= len(payload):
+            raise FGraphTypeError("event offset is outside the canonical event payload")
+        chunk = payload[chunk_offset : chunk_offset + _EVENT_CHUNK_BYTES]
+        next_offset = chunk_offset + len(chunk)
+        result = {
+            "basis_tx": pinned_basis,
+            "event": event,
+            "event_hash": digest,
+            "offset": chunk_offset,
+            "encoding": "base64",
+            "data": base64.b64encode(chunk).decode("ascii"),
+        }
+        if next_offset < len(payload):
+            result["next_uri"] = _event_resource_uri(event, pinned_basis, next_offset, digest)
+        return _resource_result(result)
+
+    @server.resource(
         "fgraph://changes{?since,cursor}",
         name="fgraph changes",
         description="Bounded transaction-event pages after a pinned boundary.",
@@ -776,16 +866,54 @@ def create_server(
         if basis is None:
             basis = _basis(db)
             position = boundary
+        if position is None:
+            raise FGraphTypeError("changes cursor has no transaction position; restart pagination")
         rows = db._connection.execute(  # noqa: SLF001
             "SELECT tx FROM fgraph_events WHERE tx>? AND tx<=? ORDER BY tx LIMIT ?",
             (position, basis, _MAX_TOOL_ITEMS + 1),
-        ).fetchall()
-        records = [db._event_record_for_tx(int(row["tx"])) for row in rows]  # noqa: SLF001
-        next_cursor = None
-        if len(records) > _MAX_TOOL_ITEMS:
-            next_cursor = _changes_cursor(db, basis, int(rows[_MAX_TOOL_ITEMS - 1]["tx"]), since)
-        result = {"basis_tx": basis, "events": records[:_MAX_TOOL_ITEMS]}
-        if next_cursor is not None:
+        )
+        records: list[dict[str, Any]] = []
+        last_position = position
+        next_position: int | None = None
+        oversized_event: dict[str, Any] | None = None
+        event_bytes = 0
+        for row in rows:
+            transaction = int(row["tx"])
+            if len(records) == _MAX_TOOL_ITEMS:
+                next_position = last_position
+                break
+            record = db._event_record_for_tx(transaction)  # noqa: SLF001
+            raw = _canonical_json_document(record).encode()
+            if len(raw) <= _CHANGES_PAGE_BYTES and event_bytes + len(raw) <= _CHANGES_PAGE_BYTES:
+                records.append(record)
+                event_bytes += len(raw)
+                last_position = transaction
+                continue
+            if records:
+                next_position = last_position
+                break
+            event_hash_row = db._connection.execute(  # noqa: SLF001
+                "SELECT event_hash FROM fgraph_events WHERE tx=?",
+                (transaction,),
+            ).fetchone()
+            if event_hash_row is None or len(bytes(event_hash_row["event_hash"])) != 32:
+                raise FGraphTypeError("oversized event has no valid event hash")
+            event_hash = bytes(event_hash_row["event_hash"]).hex()
+            oversized_event = {
+                "event": record["event"],
+                "event_hash": event_hash,
+                "bytes": len(raw),
+                "uri": _event_resource_uri(str(record["event"]), basis, 0, event_hash),
+            }
+            last_position = transaction
+            if transaction < basis:
+                next_position = transaction
+            break
+        result = {"basis_tx": basis, "events": records}
+        if oversized_event is not None:
+            result["oversized_event"] = oversized_event
+        if next_position is not None:
+            next_cursor = _changes_cursor(db, basis, next_position, since)
             result["next_uri"] = _continued_resource_uri("changes", next_cursor, since=since)
         return _resource_result(result)
 

@@ -3,6 +3,7 @@ package fgraph
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,208 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestPortableBoundaryConformance(t *testing.T) {
+	data, readErr := os.ReadFile(filepath.Join("..", "conformance", "portable-boundaries.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	decoded, decodeErr := decodeConformanceJSON(data)
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	contract, ok := objectMap(decoded)
+	if !ok {
+		t.Fatalf("portable boundary corpus is %T", decoded)
+	}
+	invalid, ok := contract["invalid_json"].([]any)
+	if !ok {
+		t.Fatal("portable boundary corpus has no invalid_json cases")
+	}
+	for _, raw := range invalid {
+		item, itemOK := objectMap(raw)
+		if !itemOK {
+			t.Fatalf("invalid_json item is %T", raw)
+		}
+		name, nameOK := item["name"].(string)
+		wire, wireOK := item["wire"].(string)
+		expected, expectedOK := item["error"].(string)
+		if !nameOK || !wireOK || !expectedOK {
+			t.Fatalf("invalid_json item is incomplete: %#v", item)
+		}
+		t.Run("json/"+name, func(t *testing.T) {
+			_, decodeErr := DecodeJSON(strings.NewReader(wire))
+			if decodeErr == nil || ErrorName(decodeErr) != expected {
+				t.Fatalf("DecodeJSON error = %v (%s), want %s", decodeErr, ErrorName(decodeErr), expected)
+			}
+		})
+	}
+
+	unicodeValue, ok := contract["unicode_value"].(string)
+	if !ok {
+		t.Fatal("portable boundary corpus has no unicode_value")
+	}
+	ctx := context.Background()
+	source := fixedDB(t, ":memory:")
+	if _, transactErr := source.Transact(ctx, []any{
+		E{"id": "portable/unicode", "portable/value": unicodeValue},
+		E{"portable/anonymous": true},
+	}, WithOperationID("portable-boundary")); transactErr != nil {
+		t.Fatal(transactErr)
+	}
+	want, entityErr := source.Entity(ctx, "portable/unicode")
+	if entityErr != nil {
+		t.Fatal(entityErr)
+	}
+	var events bytes.Buffer
+	if tailErr := source.Tail(ctx, &events, GenesisTx); tailErr != nil {
+		t.Fatal(tailErr)
+	}
+	applied := fixedDB(t, ":memory:")
+	if _, applyErr := applied.Apply(ctx, strings.NewReader(events.String())); applyErr != nil {
+		t.Fatal(applyErr)
+	}
+	got, entityErr := applied.Entity(ctx, "portable/unicode")
+	if entityErr != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("applied Unicode entity = %#v, %v; want %#v", got, entityErr, want)
+	}
+	var snapshot bytes.Buffer
+	if snapshotErr := source.Snapshot(ctx, &snapshot); snapshotErr != nil {
+		t.Fatal(snapshotErr)
+	}
+	restored := fixedDB(t, ":memory:")
+	if restoreErr := restored.Restore(ctx, strings.NewReader(snapshot.String())); restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	got, entityErr = restored.Entity(ctx, "portable/unicode")
+	if entityErr != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored Unicode entity = %#v, %v; want %#v", got, entityErr, want)
+	}
+
+	mutations, ok := contract["snapshot_mutations"].([]any)
+	if !ok {
+		t.Fatal("portable boundary corpus has no snapshot_mutations cases")
+	}
+	for _, raw := range mutations {
+		item, itemOK := objectMap(raw)
+		if !itemOK {
+			t.Fatalf("snapshot mutation is %T", raw)
+		}
+		name, nameOK := item["name"].(string)
+		expected, expectedOK := item["error"].(string)
+		if !nameOK || !expectedOK {
+			t.Fatalf("snapshot mutation is incomplete: %#v", item)
+		}
+		t.Run("snapshot/"+name, func(t *testing.T) {
+			stream := mutatePortableBoundarySnapshot(t, snapshot.String(), name)
+			target := fixedDB(t, ":memory:")
+			before, statsErr := target.Stats(ctx)
+			if statsErr != nil {
+				t.Fatal(statsErr)
+			}
+			restoreErr := target.Restore(ctx, strings.NewReader(stream))
+			if restoreErr == nil || ErrorName(restoreErr) != expected {
+				t.Fatalf("Restore error = %v (%s), want %s", restoreErr, ErrorName(restoreErr), expected)
+			}
+			after, statsErr := target.Stats(ctx)
+			if statsErr != nil || after != before {
+				t.Fatalf("failed restore was not atomic: before=%#v after=%#v err=%v", before, after, statsErr)
+			}
+		})
+	}
+}
+
+func mutatePortableBoundarySnapshot(t *testing.T, stream, mutation string) string {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(stream, "\n"), "\n")
+	records := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		decoded, err := decodeConformanceJSON([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, ok := objectMap(decoded)
+		if !ok {
+			t.Fatalf("snapshot record is %T", decoded)
+		}
+		records = append(records, record)
+	}
+	if len(records) < 3 || records[len(records)-1]["fgraph"] != "end" {
+		t.Fatal("snapshot has no footer")
+	}
+	var receipt map[string]any
+	var fact []any
+	for _, record := range records[1 : len(records)-1] {
+		if raw, exists := record["receipt"]; exists && receipt == nil {
+			var ok bool
+			receipt, ok = objectMap(raw)
+			if !ok {
+				t.Fatalf("snapshot receipt is %T", raw)
+			}
+			record["receipt"] = receipt
+		}
+		if raw, exists := record["fact"]; exists && fact == nil {
+			var ok bool
+			fact, ok = raw.([]any)
+			if !ok {
+				t.Fatalf("snapshot fact is %T", raw)
+			}
+		}
+	}
+	if receipt == nil || fact == nil {
+		t.Fatal("snapshot has no mutable receipt/fact")
+	}
+	switch mutation {
+	case "receipt_created_mismatch":
+		created, ok := receipt["created"].([]any)
+		if !ok {
+			t.Fatalf("snapshot receipt created is %T", receipt["created"])
+		}
+		receipt["created"] = append(created, "receipt-only/ghost")
+	case "anonymous_attribute":
+		created, ok := receipt["created"].([]any)
+		if !ok {
+			t.Fatalf("snapshot receipt created is %T", receipt["created"])
+		}
+		var anonymous any
+		for _, selector := range created {
+			if _, isObject := objectMap(selector); isObject {
+				anonymous = selector
+				break
+			}
+		}
+		if anonymous == nil {
+			t.Fatal("snapshot receipt has no anonymous created selector")
+		}
+		fact[1] = anonymous
+	case "operation_id_control":
+		receipt["operation_id"] = "\u0080"
+	default:
+		t.Fatalf("unknown portable snapshot mutation %q", mutation)
+	}
+
+	digest := sha256.New()
+	var output bytes.Buffer
+	for _, record := range records[:len(records)-1] {
+		encoded, err := canonicalJSON(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output.Write(encoded)
+		output.WriteByte('\n')
+		_, _ = digest.Write(encoded)
+		_, _ = digest.Write([]byte{'\n'})
+	}
+	footer := records[len(records)-1]
+	footer["sha256"] = hex.EncodeToString(digest.Sum(nil))
+	encoded, err := canonicalJSON(footer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output.Write(encoded)
+	output.WriteByte('\n')
+	return output.String()
+}
 
 func TestConformance(t *testing.T) {
 	root := filepath.Join("..", "conformance", "cases")

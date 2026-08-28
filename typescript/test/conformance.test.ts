@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,10 @@ import { connect } from "../src/store.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const casesRoot = resolve(here, "../../conformance/cases");
+const portableBoundaryPath = resolve(
+  here,
+  "../../conformance/portable-boundaries.json",
+);
 
 class Clock {
   value = 1_767_225_600_000_000n;
@@ -328,6 +333,103 @@ describe("shared conformance", () => {
       for (const step of testCase.steps) runStep(db, step);
     });
   }
+
+  it("portable-boundaries.json", () => {
+    const boundaries = parseJson(
+      readFileSync(portableBoundaryPath, "utf8"),
+      portableBoundaryPath,
+    ) as {
+      unicode_value: string;
+      invalid_json: Array<{ name: string; wire: string; error: string }>;
+      snapshot_mutations: Array<{ name: string; error: string }>;
+    };
+    for (const invalid of boundaries.invalid_json) {
+      using db = connect(":memory:", { clock: new Clock().tick });
+      try {
+        db.transact(parseJson(invalid.wire, invalid.name));
+        expect.fail(`expected ${invalid.error} for ${invalid.name}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(FGraphError);
+        expect((error as Error).name).toBe(invalid.error);
+      }
+    }
+
+    using source = connect(":memory:", { clock: new Clock().tick });
+    source.transact([
+      {
+        id: "portable/unicode",
+        "portable/value": boundaries.unicode_value,
+      },
+      { "portable/anonymous": true },
+    ]);
+    const snapshot = source.snapshot() as string;
+    const events = source.tail() as string;
+    for (const [stream, restore] of [
+      [snapshot, true],
+      [events, false],
+    ] as const) {
+      using target = connect(":memory:", { clock: new Clock().tick });
+      if (restore) target.restore(stream);
+      else target.apply(stream);
+      expect(target.entity("portable/unicode")).toEqual({
+        "portable/value": boundaries.unicode_value,
+      });
+    }
+
+    const seal = (records: Array<Record<string, unknown>>): string => {
+      const footer = records.at(-1) as Record<string, unknown>;
+      footer.sha256 = createHash("sha256")
+        .update(
+          `${records
+            .slice(0, -1)
+            .map((record) => canonicalJson(record))
+            .join("\n")}\n`,
+          "utf8",
+        )
+        .digest("hex");
+      return `${records.map((record) => canonicalJson(record)).join("\n")}\n`;
+    };
+    for (const mutation of boundaries.snapshot_mutations) {
+      const records = snapshot
+        .trim()
+        .split("\n")
+        .map(
+          (line) => parseJson(line, mutation.name) as Record<string, unknown>,
+        );
+      const receipts = records.filter((record) =>
+        Object.hasOwn(record, "receipt"),
+      ) as Array<{ receipt: Record<string, unknown> }>;
+      const facts = records.filter((record) =>
+        Object.hasOwn(record, "fact"),
+      ) as Array<{ fact: unknown[] }>;
+      const receipt = receipts[0]?.receipt;
+      if (receipt === undefined) throw new Error("snapshot receipt missing");
+      if (mutation.name === "receipt_created_mismatch")
+        (receipt.created as unknown[]).push("receipt-only/ghost");
+      else if (mutation.name === "anonymous_attribute") {
+        const anonymous = receipts
+          .flatMap((wrapper) => wrapper.receipt.created as unknown[])
+          .find((selector) => typeof selector === "object");
+        if (anonymous === undefined || facts[0] === undefined)
+          throw new Error("snapshot anonymous selector or fact missing");
+        facts[0].fact[1] = anonymous;
+      } else if (mutation.name === "operation_id_control") {
+        receipt.operation_id = "\u0080";
+        receipt.request_hash = "0".repeat(64);
+      } else throw new Error(`unknown snapshot mutation ${mutation.name}`);
+
+      using target = connect(":memory:", { clock: new Clock().tick });
+      const before = target.stats();
+      try {
+        target.restore(seal(records));
+        expect.fail(`expected ${mutation.error} for ${mutation.name}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(FGraphError);
+        expect((error as Error).name).toBe(mutation.error);
+      }
+      expect(target.stats()).toEqual(before);
+    }
+  });
 });
 
 describe("matcher", () => {

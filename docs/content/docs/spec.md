@@ -97,7 +97,7 @@ CREATE VIRTUAL TABLE fgraph_fts USING fts5(
 CREATE UNIQUE INDEX fgraph_eavt
   ON fgraph_facts (e, a, v, t) WHERE rx IS NULL;
 CREATE INDEX fgraph_avet
-  ON fgraph_facts (a, v, e) WHERE rx IS NULL;
+  ON fgraph_facts (a, t, v, e, tx, rx, id);
 CREATE INDEX fgraph_vaet
   ON fgraph_facts (v, a, e) WHERE rx IS NULL AND t = 0;
 CREATE INDEX fgraph_hist ON fgraph_facts (e, a, tx);
@@ -388,7 +388,7 @@ Event replay is logical merge, not exact physical restore: names unify, local id
 
 `snapshot/1` is the exact logical recovery protocol. NDJSON contains one header (`format`, `basis`, `created_at`), ordered receipt records, retained fact records, and one `fgraph = 'end'` record with counts and SHA-256 over prior lines. It includes retractions, stable global identities, operation receipts, redaction state, and allocator-reconstructable ordering.
 
-`restore` accepts only a pristine destination, validates the entire bounded stream and footer, and atomically reconstructs an equivalent format-v2 file. Every runtime must reproduce the same snapshot and ordered core rows. Snapshots are the recovery path for an excised database because portable `apply` rejects redacted event records whose original payload is intentionally unavailable.
+`restore` accepts only a pristine destination, validates the entire bounded stream and footer, and atomically reconstructs an equivalent format-v2 file. One snapshot record is capped at `16,973,824` UTF-8 bytes (`2 * event cap + 64 KiB`): a receipt embeds one event and repeats its created selectors so local ids remain reconstructable after later redaction. File readers enforce the cap before an unbounded line allocation; LF is the only record delimiter and is not part of the cap. Every runtime must reproduce the same snapshot and ordered core rows. Snapshots are the recovery path for an excised database because portable `apply` rejects redacted event records whose original payload is intentionally unavailable.
 
 `backup(dest)` uses SQLite's online backup API into a temporary sibling, verifies it with `doctor`, fsyncs it, and publishes it without overwriting an existing destination. It is safe while the source has readers/writer activity.
 
@@ -458,7 +458,8 @@ The bounded resources are:
 - `fgraph://schema{?prefix,cursor}` — `{basis_tx,digest,attributes,shapes,next_uri?}`, with at most 100 combined items;
 - `fgraph://entity/{selector}{?at,cursor}` — `{basis_tx,items,next_uri?}` containing current/historical EAVT datoms;
 - `fgraph://tx/{tx}` — receipt with at most 100 custom facts;
-- `fgraph://changes{?since,cursor}` — `{basis_tx,events,next_uri?}` containing at most 100 complete portable `event/1` records.
+- `fgraph://changes{?since,cursor}` — `{basis_tx,events,oversized_event?,next_uri?}` containing at most 100 complete portable `event/1` records and at most 192 KiB of canonical event JSON per page. If the next event alone exceeds that page budget, `events` is empty and `oversized_event = {event,event_hash,bytes,uri}` points to its first chunk; the change cursor advances past that event so a later `next_uri` cannot be blocked by it.
+- `fgraph://event/{event}{?basis,offset,digest}` — `{basis_tx,event,event_hash,offset,encoding:"base64",data,next_uri?}` containing at most 128 KiB of the canonical UTF-8 `event/1` document. `basis` and the lowercase 64-hex SHA-256 `digest` are required; `offset` defaults to zero. The server pins the basis, validates the digest against the durable receipt, rechecks canonical JSON and its hash before serving bytes, and rejects redacted payloads. Following `next_uri` values in order reconstructs the exact document without a trailing newline.
 
 Excision, repair, restore, apply, and backup are deliberately absent from MCP.
 

@@ -343,7 +343,7 @@ describe("MCP server", () => {
         (templates.resourceTemplates as Array<{ name: string }>).map(
           (template) => template.name,
         ),
-      ).toEqual(["schema", "entity", "transaction", "changes"]);
+      ).toEqual(["schema", "entity", "transaction", "changes", "event"]);
       expect(
         resourceData(
           await client.request("resources/read", {
@@ -1145,6 +1145,108 @@ describe("MCP server", () => {
         }),
       ) as { hits: unknown[] };
       expect(recalled.hits).toHaveLength(1);
+    } finally {
+      await server.close();
+      await client.close();
+    }
+  });
+
+  it("chunks an oversized change event and advances to later events", async () => {
+    using db = connect(":memory:", { clock: 1_767_225_600_000_000n });
+    const oversized = db.transact({
+      id: "change/oversized",
+      "change/value": "x".repeat(300_000),
+    });
+    const later = db.transact({ id: "change/later", "change/value": "small" });
+    const expected = stringifyJson(
+      db.eventRecords(64, oversized.tx as number)[0],
+    );
+    const server = createMcpServer(db);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new TestClient(clientTransport);
+    await client.start();
+    await server.connect(serverTransport);
+    await client.initialize();
+    try {
+      const changes = resourceData(
+        await client.request("resources/read", {
+          uri: "fgraph://changes?since=64",
+        }),
+      ) as {
+        events: unknown[];
+        oversized_event: {
+          event: string;
+          event_hash: string;
+          bytes: number;
+          uri: string;
+        };
+        next_uri: string;
+      };
+      expect(changes.events).toEqual([]);
+      expect(changes.oversized_event).toMatchObject({
+        event: oversized.event,
+        event_hash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        bytes: Buffer.byteLength(expected),
+        uri: expect.stringMatching(/^fgraph:\/\/event\//u),
+      });
+
+      const chunks: Buffer[] = [];
+      let next: string | undefined = changes.oversized_event.uri;
+      while (next !== undefined) {
+        const page = resourceData(
+          await client.request("resources/read", { uri: next }),
+        ) as {
+          basis_tx: number;
+          event: string;
+          event_hash: string;
+          offset: number;
+          encoding: string;
+          data: string;
+          next_uri?: string;
+        };
+        expect(page).toMatchObject({
+          basis_tx: later.tx,
+          event: oversized.event,
+          event_hash: changes.oversized_event.event_hash,
+          encoding: "base64",
+        });
+        chunks.push(Buffer.from(page.data, "base64"));
+        next = page.next_uri;
+      }
+      expect(Buffer.concat(chunks).toString("utf8")).toBe(expected);
+      expect(
+        resourceData(
+          await client.request("resources/read", { uri: changes.next_uri }),
+        ),
+      ).toMatchObject({
+        events: [expect.objectContaining({ event: later.event })],
+      });
+
+      const invalidChunk = new URL(changes.oversized_event.uri);
+      invalidChunk.searchParams.set("offset", "-1");
+      await expect(
+        client.request("resources/read", { uri: invalidChunk.href }),
+      ).rejects.toThrow("MCP RPC error");
+      invalidChunk.searchParams.set("offset", "0");
+      invalidChunk.searchParams.set("digest", "0".repeat(64));
+      await expect(
+        client.request("resources/read", { uri: invalidChunk.href }),
+      ).rejects.toThrow("MCP RPC error");
+      const laterIdentity = db._connection
+        .prepare<[], { id: bigint }>(
+          "SELECT id FROM fgraph_ids WHERE name='change/later'",
+        )
+        .get();
+      expect(laterIdentity).toBeDefined();
+      invalidChunk.searchParams.set(
+        "digest",
+        changes.oversized_event.event_hash,
+      );
+      invalidChunk.searchParams.set("basis", String(laterIdentity?.id));
+      await expect(
+        client.request("resources/read", { uri: invalidChunk.href }),
+      ).rejects.toThrow("MCP RPC error");
     } finally {
       await server.close();
       await client.close();

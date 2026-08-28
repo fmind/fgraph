@@ -43,7 +43,6 @@ type queryEvaluator struct {
 	rules     map[string][]ruleDef
 	relations map[string][][]cell
 	source    string
-	facts     []queryFact
 	budget    int
 	work      int
 }
@@ -191,11 +190,9 @@ func (db *DB) Pull(ctx context.Context, ref any, pattern []any) (map[string]any,
 		if !found {
 			return fail(ErrNotFound, "entity %v does not exist", ref)
 		}
-		facts, err := db.queryFacts(ctx, runner, "current")
-		if err != nil {
-			return err
+		evaluator := &queryEvaluator{
+			db: db, ctx: ctx, runner: runner, source: "current", budget: db.store.queryBudget,
 		}
-		evaluator := &queryEvaluator{db: db, ctx: ctx, runner: runner, facts: facts, source: "current"}
 		result, err = evaluator.pullPattern(entity, pattern, 1, map[int64]bool{entity: true})
 		return err
 	})
@@ -220,16 +217,8 @@ func (db *DB) Query(ctx context.Context, query Q, args map[string]any) (Result, 
 	}
 	var result Result
 	err := db.withRead(ctx, func(runner sqlRunner) error {
-		var facts []queryFact
-		if queryNeedsMaterializedFacts(query.Find) {
-			var factsErr error
-			facts, factsErr = db.queryFacts(ctx, runner, query.Source)
-			if factsErr != nil {
-				return factsErr
-			}
-		}
 		evaluator := &queryEvaluator{
-			db: db, ctx: ctx, runner: runner, facts: facts,
+			db: db, ctx: ctx, runner: runner,
 			relations: map[string][][]cell{}, budget: db.store.queryBudget, source: query.Source,
 		}
 		if parseErr := evaluator.parseRules(query.Rules); parseErr != nil {
@@ -258,16 +247,6 @@ func (db *DB) Query(ctx context.Context, query Q, args map[string]any) (Result, 
 		return err
 	})
 	return result, err
-}
-
-func queryNeedsMaterializedFacts(find []any) bool {
-	for _, item := range find {
-		parts, ok := item.([]any)
-		if ok && len(parts) == 3 && parts[0] == "pull" {
-			return true
-		}
-	}
-	return false
 }
 
 func validateFindBindings(query Q) error {
@@ -1815,11 +1794,12 @@ func (e *queryEvaluator) pullPattern(entity int64, pattern []any, depth int, see
 			}
 		}
 		populated, allRefs := false, true
-		for _, fact := range e.facts {
-			if fact.a == fields[0].Name {
-				populated = true
-				allRefs = allRefs && fact.cell.tag == TagRef
-			}
+		if err := e.scanPullFacts(nil, fields[0].Name, nil, func(fact queryFact) error {
+			populated = true
+			allRefs = allRefs && fact.cell.tag == TagRef
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 		if schema.typeName != "" && schema.typeName != "ref" {
 			return nil, fail(ErrQuery, "nested pull attribute %q declares %s values, not references", fields[0].Name, schema.typeName)
@@ -1832,7 +1812,7 @@ func (e *queryEvaluator) pullPattern(entity int64, pattern []any, depth int, see
 		}
 		attrs[fields[0].Name] = fields[0].Value
 	}
-	full, err := e.db.pullEntity(e.ctx, e.runner, entity, 0, seen)
+	full, err := e.db.pullEntity(e.ctx, e.runner, entity, 0, seen, e.spend)
 	if err != nil {
 		return nil, err
 	}
@@ -1844,10 +1824,11 @@ func (e *queryEvaluator) pullPattern(entity int64, pattern []any, depth int, see
 		if strings.Contains(attr, "/_") {
 			forward := strings.Replace(attr, "/_", "/", 1)
 			entities := []any{}
-			for _, fact := range e.facts {
-				if fact.a == forward && fact.cell.tag == TagRef && asInt64(fact.cell.value) == entity {
-					entities = append(entities, e.db.renderLogical(fact.e, TagRef))
-				}
+			if err := e.scanPullFacts(nil, forward, &entity, func(fact queryFact) error {
+				entities = append(entities, e.db.renderLogical(fact.e, TagRef))
+				return nil
+			}); err != nil {
+				return nil, err
 			}
 			result[attr] = entities
 			continue
@@ -1865,10 +1846,13 @@ func (e *queryEvaluator) pullPattern(entity int64, pattern []any, depth int, see
 			return nil, fail(ErrQuery, "nested pull pattern for %q has type %T; use an attribute array", attr, sub)
 		}
 		refs := []int64{}
-		for _, fact := range e.facts {
-			if fact.e == entity && fact.a == attr && fact.cell.tag == TagRef {
+		if err := e.scanPullFacts(&entity, attr, nil, func(fact queryFact) error {
+			if fact.cell.tag == TagRef {
 				refs = append(refs, asInt64(fact.cell.value))
 			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 		nested := []any{}
 		for _, ref := range refs {
@@ -1900,6 +1884,62 @@ func (e *queryEvaluator) pullPattern(entity int64, pattern []any, depth int, see
 		}
 	}
 	return result, nil
+}
+
+func (e *queryEvaluator) scanPullFacts(
+	entity *int64,
+	attribute string,
+	reference *int64,
+	visit func(queryFact) error,
+) (resultErr error) {
+	attributeID, found := e.db.store.names[attribute]
+	if !found {
+		return nil
+	}
+	query, alias, args, err := e.patternSQLBase()
+	if err != nil {
+		return err
+	}
+	query += " AND " + alias + ".a=?"
+	args = append(args, attributeID)
+	if entity != nil {
+		query += " AND " + alias + ".e=?"
+		args = append(args, *entity)
+	}
+	if reference != nil {
+		query += " AND " + alias + ".v=? AND " + alias + ".t=?"
+		args = append(args, *reference, TagRef)
+	}
+	query += " ORDER BY dtx,added," + alias + ".e," + alias + ".id"
+	rows, err := e.runner.QueryContext(e.ctx, query, args...)
+	if err != nil {
+		return wrap(ErrFormat, err, "cannot scan pull facts for %q", attribute)
+	}
+	defer func() { resultErr = joinErrors(resultErr, wrapClose(rows.Close(), "pull fact rows")) }()
+	for rows.Next() {
+		if err := e.spend(); err != nil {
+			return err
+		}
+		var raw any
+		var tag Tag
+		var fact queryFact
+		var added int64
+		if err := rows.Scan(&raw, &tag, &fact.e, &fact.aID, &fact.a, &fact.tx, &added); err != nil {
+			return wrap(ErrFormat, err, "cannot decode pull fact for %q", attribute)
+		}
+		logical, err := e.db.logicalValue(e.ctx, e.runner, raw, tag)
+		if err != nil {
+			return err
+		}
+		fact.cell, fact.added = cell{tag: tag, value: logical}, added != 0
+		if err := visit(fact); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrap(ErrFormat, err, "cannot finish pull facts for %q", attribute)
+	}
+	return nil
 }
 
 func (e *queryEvaluator) aggregateRow(find []any, values []binding) ([]any, []cell, error) {

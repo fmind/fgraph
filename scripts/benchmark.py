@@ -30,6 +30,11 @@ import typer
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parents[1]
+README = ROOT / "README.md"
+CANONICAL_OUTPUT = ROOT / "benchmarks" / "latest.ndjson"
+CANONICAL_CHARTS = ROOT / "benchmarks"
+README_START = "<!-- benchmark-results:start -->"
+README_END = "<!-- benchmark-results:end -->"
 VECTOR_DIMS = 384
 DEFAULT_SIZES = [1_000, 10_000, 100_000]
 RUNTIME_COMMANDS = {
@@ -631,6 +636,128 @@ def _verify_charts(records: Sequence[dict[str, Any]], directory: Path) -> None:
                 raise ValueError(f"benchmark chart {chart} is missing or does not match the raw observations")
 
 
+def _markdown_table(headers: Sequence[str], rows: Sequence[Sequence[str]], *, numeric_from: int = 1) -> str:
+    widths = [max(len(headers[index]), *(len(row[index]) for row in rows)) for index in range(len(headers))]
+
+    def cells(values: Sequence[str], *, header: bool = False) -> str:
+        rendered = []
+        for index, value in enumerate(values):
+            if header or index < numeric_from:
+                rendered.append(value.ljust(widths[index]))
+            else:
+                rendered.append(value.rjust(widths[index]))
+        return f"| {' | '.join(rendered)} |"
+
+    separator = ["-" * width if index < numeric_from else f"{'-' * (width - 1)}:" for index, width in enumerate(widths)]
+    return "\n".join([cells(headers, header=True), cells(separator, header=True), *(cells(row) for row in rows)])
+
+
+def _readme_results(records: Sequence[dict[str, Any]]) -> str:
+    metadata = records[0]
+    observations = [record for record in records if record.get("record") != "metadata"]
+    largest = max(int(record["entities"]) for record in observations)
+    by_key = {
+        (str(record["runtime"]), int(record["entities"]), str(record["operation"])): record for record in observations
+    }
+
+    def observation(runtime: str, operation: str) -> dict[str, Any]:
+        try:
+            return by_key[(runtime, largest, operation)]
+        except KeyError as error:
+            raise ValueError(f"benchmark README is missing {runtime}/{largest}/{operation}") from error
+
+    labels = {"python": "Python", "go": "Go", "typescript": "TypeScript"}
+    runtimes = list(RUNTIME_COMMANDS)
+    read_operations = [
+        "point_get",
+        "query_scalar_filter",
+        "query_join",
+        "keyword_search",
+        "vector_search_384",
+    ]
+    throughput_rows = [
+        [
+            labels[runtime],
+            f"{float(observation(runtime, 'ingest_batched')['entities_per_second']):,.0f}",
+            *(f"{float(observation(runtime, operation)['seconds']) * 1_000:.0f} ms" for operation in read_operations),
+        ]
+        for runtime in runtimes
+    ]
+    portable_rows = [
+        [
+            labels[runtime],
+            *(
+                f"{float(observation(runtime, operation)['seconds']):.2f} s"
+                for operation in ("snapshot", "restore", "tail", "apply")
+            ),
+        ]
+        for runtime in runtimes
+    ]
+    common_bytes = {int(observation(runtime, "file_size")["bytes"]) for runtime in runtimes}
+    snapshot_bytes = {int(observation(runtime, "snapshot")["bytes"]) for runtime in runtimes}
+    tail_bytes = {int(observation(runtime, "tail")["bytes"]) for runtime in runtimes}
+    if len(common_bytes) != 1 or len(snapshot_bytes) != 1 or len(tail_bytes) != 1:
+        raise ValueError("benchmark runtimes disagree on portable file, snapshot, or event-stream size")
+    source_revision = str(metadata["source_revision"])
+    generated_date = str(metadata["generated_at"]).split("T", maxsplit=1)[0]
+    tree = str(metadata["source_tree"])
+    return "\n\n".join(
+        [
+            f"At {largest:,} entities:",
+            _markdown_table(
+                [
+                    "Runtime",
+                    "Ingest entities/s",
+                    "Point get",
+                    "Scalar filter",
+                    "Connected join",
+                    "Keyword search",
+                    "Exact vector search",
+                ],
+                throughput_rows,
+            ),
+            _markdown_table(
+                ["Runtime", "Snapshot", "Restore", "Event tail", "Event apply"],
+                portable_rows,
+            ),
+            "The common logical state occupied "
+            f"{next(iter(common_bytes)) / (1024 * 1024):.2f} MiB; its snapshot was "
+            f"{next(iter(snapshot_bytes)) / (1024 * 1024):.2f} MiB and its event stream "
+            f"{next(iter(tail_bytes)) / (1024 * 1024):.2f} MiB. Vector search is intentionally exact over the "
+            f"{largest // 20:,} vectors, not ANN. These measurements validate the tested {largest // 1_000}k envelope, "
+            "not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and "
+            "hardware affect the numbers.",
+            f"This release run was generated on {generated_date} from {tree} source commit "
+            f"[`{source_revision[:7]}`](https://github.com/fmind/fgraph/commit/{source_revision}) and source digest "
+            f"`{metadata['source_digest']}`. The raw metadata records the exact runtime, SQLite, platform, workload, "
+            "and clean-tree provenance.",
+        ]
+    )
+
+
+def _replace_readme_results(records: Sequence[dict[str, Any]], *, verify: bool) -> None:
+    document = README.read_text(encoding="utf-8")
+    if document.count(README_START) != 1 or document.count(README_END) != 1:
+        raise ValueError("README benchmark result markers are missing or duplicated")
+    prefix, remainder = document.split(README_START, maxsplit=1)
+    _old, suffix = remainder.split(README_END, maxsplit=1)
+    expected = f"{prefix}{README_START}\n\n{_readme_results(records)}\n\n{README_END}{suffix}"
+    if verify:
+        if document != expected:
+            raise ValueError("README benchmark results do not match the raw observations")
+        return
+    README.write_text(expected, encoding="utf-8")
+
+
+def _canonical_artifacts(output: Path | None, charts_dir: Path | None) -> bool:
+    return (
+        output is not None
+        and charts_dir is not None
+        and output.resolve() == CANONICAL_OUTPUT
+        and charts_dir.resolve() == CANONICAL_CHARTS
+    )
+
+
 @app.command()
 def main(
     sizes: Annotated[list[int] | None, typer.Option("--size", min=1, help="Entity count; repeat.")] = None,
@@ -668,6 +795,8 @@ def main(
         _verify_records(records, metadata, runtimes=selected_runtimes, sizes=selected_sizes)
         if charts_dir is not None:
             _verify_charts(records, charts_dir)
+        if _canonical_artifacts(output, charts_dir):
+            _replace_readme_results(records, verify=True)
         out.print(f"benchmark: verified {len(selected_runtimes) * len(selected_sizes)} runtime/size groups")
         return
     records = _read_records(output) if reuse_output else [metadata]
@@ -736,6 +865,8 @@ def main(
         if set(selected_runtimes) != set(RUNTIME_COMMANDS) or len(selected_sizes) < 2:
             raise typer.BadParameter("chart generation requires all runtimes and at least two sizes")
         _write_charts(records, charts_dir)
+    if _canonical_artifacts(output, charts_dir):
+        _replace_readme_results(records, verify=False)
 
 
 if __name__ == "__main__":

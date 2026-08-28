@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -311,6 +312,79 @@ func TestEventRecordReceiptIntegrityBoundaries(t *testing.T) {
 		if _, err := decodeStoredEventData(test.data, test.hash); !errors.Is(err, test.kind) {
 			t.Errorf("decodeStoredEventData(%q) error = %v", test.data[:min(len(test.data), 20)], err)
 		}
+	}
+}
+
+func TestTailStreamsValidPrefixBeforeLaterCorruptEvent(t *testing.T) {
+	ctx := context.Background()
+	db := fixedDB(t, ":memory:")
+	if err := db.Tail(ctx, io.Discard, GenesisTx-1); !errors.Is(err, ErrType) {
+		t.Fatalf("Tail pre-genesis cursor error = %v, want TypeError", err)
+	}
+	first, err := db.Transact(ctx, E{"id": "tail/first", "tail/value": "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.Transact(ctx, E{"id": "tail/second", "tail/value": "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := db.EventRecords(ctx, GenesisTx)
+	if err != nil || len(records) != 2 {
+		t.Fatalf("event records = %#v, %v", records, err)
+	}
+	if _, err := db.store.sql.ExecContext(ctx, "UPDATE fgraph_events SET event_data='{}' WHERE tx=?", second.Tx); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := db.Tail(ctx, &output, GenesisTx); !errors.Is(err, ErrFormat) {
+		t.Fatalf("Tail error = %v, want FormatError", err)
+	}
+	firstEvent, firstOK := records[0]["event"].(string)
+	secondEvent, secondOK := records[1]["event"].(string)
+	if !firstOK || !secondOK {
+		t.Fatalf("event identities = %#v, %#v; want strings", records[0]["event"], records[1]["event"])
+	}
+	if !strings.Contains(output.String(), firstEvent) || strings.Contains(output.String(), secondEvent) {
+		t.Fatalf("Tail output = %q; want valid tx %d only before corrupt tx %d", output.String(), first.Tx, second.Tx)
+	}
+}
+
+func TestTailStreamingSQLFaultsAfterBasis(t *testing.T) {
+	ctx := context.Background()
+	failure := errors.New("scripted tail fault")
+	basis := scriptedQuery{
+		contains: "SELECT COALESCE(MAX(tx),0)", columns: []string{"basis"},
+		rows: [][]driver.Value{{int64(GenesisTx)}},
+	}
+	for _, test := range []struct {
+		name string
+		rule scriptedQuery
+	}{
+		{name: "query", rule: scriptedQuery{contains: "SELECT tx FROM fgraph_events", err: failure}},
+		{name: "scan", rule: scriptedQuery{contains: "SELECT tx FROM fgraph_events", columns: []string{"tx"}, rows: [][]driver.Value{{"not-an-integer"}}}},
+		{name: "iteration", rule: scriptedQuery{contains: "SELECT tx FROM fgraph_events", columns: []string{"tx"}, nextErr: failure}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := openScriptedSQL(t, scriptedSQL{queries: []scriptedQuery{basis, test.rule}})
+			db := &DB{store: &store{sql: runner, names: map[string]int64{}}, exec: runner}
+			if err := db.Tail(ctx, io.Discard, GenesisTx); !errors.Is(err, ErrFormat) {
+				t.Fatalf("Tail SQL fault = %v, want FormatError", err)
+			}
+		})
+	}
+}
+
+func TestEventValuePropagatesReferenceIdentityFailure(t *testing.T) {
+	ctx := context.Background()
+	failure := errors.New("scripted reference identity fault")
+	runner := openScriptedSQL(t, scriptedSQL{queries: []scriptedQuery{{
+		contains: "SELECT name,gid FROM fgraph_ids", err: failure,
+	}}})
+	db := &DB{store: &store{sql: runner, names: map[string]int64{}}, exec: runner}
+	if _, err := db.eventValue(ctx, runner, int64(65), TagRef); !errors.Is(err, ErrFormat) {
+		t.Fatalf("eventValue identity fault = %v, want FormatError", err)
 	}
 }
 

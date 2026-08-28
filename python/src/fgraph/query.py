@@ -45,10 +45,10 @@ class _WorkBudget:
     def __init__(self, limit: int) -> None:
         self.remaining = limit
 
-    def spend(self) -> None:
-        if self.remaining == 0:
+    def spend(self, amount: int = 1) -> None:
+        if amount > self.remaining:
             raise TooLarge("query exhausted its work budget; narrow the clauses or open with a larger query_budget")
-        self.remaining -= 1
+        self.remaining -= amount
 
 
 def _is_variable(term: Any) -> bool:
@@ -195,6 +195,10 @@ def _pattern(
         visibility, visibility_parameters = db._visibility(basis)  # noqa: SLF001
         rows_by_entity: dict[int, list[Any]] = {}
         entities = sorted({int(binding[entity_variable].value) for binding in bindings})
+        bindings_per_entity: dict[int, int] = {}
+        for binding in bindings:
+            entity = int(binding[entity_variable].value)
+            bindings_per_entity[entity] = bindings_per_entity.get(entity, 0) + 1
         for offset in range(0, len(entities), 400):
             chunk = entities[offset : offset + 400]
             placeholders = ",".join("?" for _ in chunk)
@@ -203,11 +207,12 @@ def _pattern(
                 (int(constants[1].value), *chunk, *visibility_parameters),
             )
             for row in rows:
-                rows_by_entity.setdefault(int(row["e"]), []).append(row)
+                entity = int(row["e"])
+                work.spend(bindings_per_entity[entity])
+                rows_by_entity.setdefault(entity, []).append(row)
         result: list[Binding] = []
         for binding in bindings:
             for row in rows_by_entity.get(int(binding[entity_variable].value), []):
-                work.spend()
                 current: Binding | None = binding
                 cells = (
                     Cell(REF, int(row["e"])),
@@ -272,30 +277,29 @@ def _pattern(
         rows = db._connection.execute(  # noqa: SLF001
             f"SELECT * FROM fgraph_facts WHERE {' AND '.join(conditions)} ORDER BY id",  # noqa: S608
             parameters,
-        ).fetchall()
-        raw_datoms: list[tuple[Cell, ...]] = []
+        )
         for row in rows:
             base = (
                 Cell(REF, int(row["e"])),
                 Cell(REF, int(row["a"])),
                 db._cell(int(row["t"]), row["v"]),  # noqa: SLF001
             )
-            raw_datoms.append((*base, Cell(REF, int(row["tx"])), Cell(BOOL, True)))
+            raw_datoms = [(*base, Cell(REF, int(row["tx"])), Cell(BOOL, True))]
             if source == "history" and row["rx"] is not None and int(row["rx"]) <= basis:
                 raw_datoms.append((*base, Cell(REF, int(row["rx"])), Cell(BOOL, False)))
-        for datom in raw_datoms:
-            if transaction is not None and datom[3].value != transaction:
-                continue
-            if added is not None and datom[4].value is not added:
-                continue
-            work.spend()
-            current: Binding | None = binding
-            for term, cell, constant in zip(clause, datom, constants, strict=False):
-                if current is None:
-                    break
-                current = _unify(current, term, cell, constant)
-            if current is not None:
-                result.append(current)
+            for datom in raw_datoms:
+                if transaction is not None and datom[3].value != transaction:
+                    continue
+                if added is not None and datom[4].value is not added:
+                    continue
+                work.spend()
+                current: Binding | None = binding
+                for term, cell, constant in zip(clause, datom, constants, strict=False):
+                    if current is None:
+                        break
+                    current = _unify(current, term, cell, constant)
+                if current is not None:
+                    result.append(current)
     return _dedupe(result)
 
 

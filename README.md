@@ -157,6 +157,8 @@ fgraph --db project.db excise private-subject \
 
 Opting into `mcp --write` adds `remember`, `forget`, and `undo`. Writes require operation ids; destructive calls also require a current basis. Every successful tool response uses `{"ok":true,"basis_tx":...,"data":...}` and is capped at 256 KiB. MCP initialization tells agents to inspect schema, preserve read bases, paginate, and guard writes; tool discovery includes output schemas and read/destructive/idempotent/open-world annotations.
 
+Read-only resources expose paginated schema, entity datoms, receipts, and portable changes. A change event too large for one bounded page is exposed as integrity-checked 128 KiB chunks, while its continuation still advances to later events.
+
 ```bash
 # Read-only project knowledge base.
 claude mcp add --scope project fgraph -- fgraph --db ./project.db mcp
@@ -186,23 +188,27 @@ The checked-in benchmark exercises each native CLI independently at 1k, 10k, and
 
 ![Fresh-process read latency at 100,000 entities](benchmarks/read-latency.svg)
 
+<!-- benchmark-results:start -->
+
 At 100,000 entities:
 
 | Runtime    | Ingest entities/s | Point get | Scalar filter | Connected join | Keyword search | Exact vector search |
 | ---------- | ----------------: | --------: | ------------: | -------------: | -------------: | ------------------: |
-| Python     |             4,204 |    184 ms |        175 ms |         219 ms |         666 ms |              581 ms |
-| Go         |             5,257 |     91 ms |        117 ms |         166 ms |         521 ms |              456 ms |
-| TypeScript |             4,200 |    175 ms |        203 ms |         208 ms |         568 ms |              442 ms |
+| Python     |             4,205 |    161 ms |        181 ms |         215 ms |         615 ms |              582 ms |
+| Go         |             5,256 |     95 ms |        107 ms |         170 ms |         559 ms |              506 ms |
+| TypeScript |             4,816 |    175 ms |        167 ms |         181 ms |         598 ms |              407 ms |
 
 | Runtime    | Snapshot | Restore | Event tail | Event apply |
 | ---------- | -------: | ------: | ---------: | ----------: |
-| Python     |   6.03 s | 21.94 s |     2.54 s |     36.05 s |
-| Go         |   4.59 s | 15.83 s |     2.67 s |     20.49 s |
-| TypeScript |   9.84 s | 15.18 s |     3.13 s |     16.08 s |
+| Python     |   5.80 s | 22.05 s |     2.68 s |     34.60 s |
+| Go         |   4.60 s | 16.49 s |     2.66 s |     22.13 s |
+| TypeScript |   9.75 s | 16.41 s |     3.15 s |     16.80 s |
 
 The common logical state occupied 92.02 MiB; its snapshot was 60.53 MiB and its event stream 22.52 MiB. Vector search is intentionally exact over the 5,000 vectors, not ANN. These measurements validate the tested 100k envelope, not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and hardware affect the numbers.
 
-This release run was generated on 2026-08-27 from clean source commit [`d98652f`](https://github.com/fmind/fgraph/commit/d98652fdeed36376fa6c67927ca1cea92d44c64e) and source digest `sha256:c3d357fea8c4de3625cc6d7d35dcdbcb9f1a2d985c569247a148c3c8d42b78d4`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
+This release run was generated on 2026-08-28 from clean source commit [`6918730`](https://github.com/fmind/fgraph/commit/691873012130dfc4080b3756c0f1c3799ab88f58) and source digest `sha256:e85b6e613d3fe02213c663915649effef124c481a242fbc92553f825bb82dfee`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
+
+<!-- benchmark-results:end -->
 
 Reproduce the complete run with `mise run benchmark`. The harness has no timing pass/fail threshold and writes the [raw NDJSON observations](benchmarks/latest.ndjson) plus both accessible SVG charts.
 

@@ -122,6 +122,51 @@ func TestOpenFormatValidationAndLifecycleEdges(t *testing.T) {
 	}
 }
 
+func TestNilOptionsAndClockReturnTypeErrors(t *testing.T) {
+	ctx := context.Background()
+	db := fixedDB(t, ":memory:")
+	tests := map[string]func() error{
+		"open option": func() error {
+			opened, err := Open(":memory:", OpenOption(nil))
+			if opened != nil {
+				closeTest(t, opened)
+			}
+			return err
+		},
+		"clock": func() error {
+			opened, err := Open(":memory:", WithClock(nil))
+			if opened != nil {
+				closeTest(t, opened)
+			}
+			return err
+		},
+		"transaction option": func() error {
+			_, err := db.Transact(ctx, E{"id": "nil/transaction"}, TxOption(nil))
+			return err
+		},
+		"declaration option": func() error {
+			_, err := db.Declare(ctx, "nil/declaration", DeclareOption(nil))
+			return err
+		},
+		"excision option": func() error {
+			_, err := db.Excise(ctx, "nil/transaction", TxOption(nil))
+			return err
+		},
+	}
+	for name, call := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Errorf("panicked with %v; want typed error", recovered)
+				}
+			}()
+			if err := call(); !errors.Is(err, ErrType) {
+				t.Errorf("error = %v, want TypeError", err)
+			}
+		})
+	}
+}
+
 func TestConcurrentPristineInitializationAcceptsTheWinningStore(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concurrent.db")

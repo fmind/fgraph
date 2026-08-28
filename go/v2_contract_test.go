@@ -554,7 +554,7 @@ func TestV2MCPDefaultsReadOnlyAndExposesBoundedSurfaces(t *testing.T) {
 	if resourcesErr != nil {
 		t.Fatal(resourcesErr)
 	}
-	if len(resources.ResourceTemplates) != 4 {
+	if len(resources.ResourceTemplates) != 5 {
 		encoded, marshalErr := json.Marshal(resources)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)

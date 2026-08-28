@@ -10,7 +10,7 @@ import {
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { FGraphError, FormatError, TypeError } from "./errors.js";
+import { FGraphError, FormatError, TooLarge, TypeError } from "./errors.js";
 import {
   JsonFloat,
   canonicalJson,
@@ -23,7 +23,12 @@ import type {
   EntityRef,
   TransactOptions,
 } from "./store.js";
-import { GENESIS_TX, connect } from "./store.js";
+import {
+  GENESIS_TX,
+  MAX_EVENT_BYTES,
+  MAX_SNAPSHOT_LINE_BYTES,
+  connect,
+} from "./store.js";
 import { INT64_MAX, INT64_MIN } from "./values.js";
 
 const VERSION = "1.0.4";
@@ -303,32 +308,47 @@ function mutationOptions(args: string[]): TransactOptions {
   };
 }
 
-function inputLines(source: string): Iterable<string> {
+function inputLines(source: string, maxBytes: number): Iterable<string> {
   return (function* lines(): Generator<string> {
     let descriptor: number | undefined;
     const owned = source !== "-";
     try {
       descriptor = owned ? openSync(source, "r") : 0;
       const buffer = Buffer.allocUnsafe(64 * 1024);
-      const decoder = new TextDecoder("utf-8", { fatal: true });
+      let decoder = new TextDecoder("utf-8", { fatal: true });
       let pending = "";
+      let pendingBytes = 0;
       for (;;) {
         const count = readSync(descriptor, buffer, 0, buffer.length, null);
         if (count === 0) break;
-        pending += decoder.decode(buffer.subarray(0, count), { stream: true });
-        for (let newline = pending.indexOf("\n"); newline >= 0;) {
-          const end =
-            newline > 0 && pending[newline - 1] === "\r"
-              ? newline - 1
-              : newline;
-          yield pending.slice(0, end);
-          pending = pending.slice(newline + 1);
-          newline = pending.indexOf("\n");
+        let start = 0;
+        while (start < count) {
+          const found = buffer.indexOf(0x0a, start);
+          const newline = found >= 0 && found < count ? found : -1;
+          const end = newline >= 0 ? newline : count;
+          const fragmentBytes = end - start;
+          if (fragmentBytes > maxBytes - pendingBytes)
+            throw new TooLarge(
+              `portable NDJSON payload exceeds ${maxBytes} bytes; split or reduce the encoded record`,
+            );
+          pendingBytes += fragmentBytes;
+          pending += decoder.decode(buffer.subarray(start, end), {
+            stream: true,
+          });
+          if (newline < 0) break;
+          pending += decoder.decode();
+          const line = pending.endsWith("\r") ? pending.slice(0, -1) : pending;
+          pending = "";
+          pendingBytes = 0;
+          decoder = new TextDecoder("utf-8", { fatal: true });
+          start = newline + 1;
+          yield line;
         }
       }
       pending += decoder.decode();
       if (pending !== "") yield pending;
-    } catch {
+    } catch (error) {
+      if (error instanceof FGraphError) throw error;
       throw new FormatError(
         `input file ${JSON.stringify(source)} cannot be opened as UTF-8; check the path, permissions, and encoding`,
       );
@@ -721,14 +741,17 @@ async function dispatch(
       );
     } else if (command === "apply") {
       if (args.length > 1) usage("apply accepts at most one event-stream file");
-      emit(db.applySummary(inputLines(args[0] ?? "-")), machine);
+      emit(
+        db.applySummary(inputLines(args[0] ?? "-", MAX_EVENT_BYTES)),
+        machine,
+      );
     } else if (command === "snapshot") {
       if (args.length > 0)
         usage("snapshot writes to stdout and accepts no arguments");
-      process.stdout.write(db.snapshot() as string);
+      db.snapshot(process.stdout);
     } else if (command === "restore") {
       if (args.length > 1) usage("restore accepts at most one snapshot file");
-      db.restore(inputLines(args[0] ?? "-"));
+      db.restore(inputLines(args[0] ?? "-", MAX_SNAPSHOT_LINE_BYTES));
       emit({ ok: true, basis_tx: db._basisTx() }, machine);
     } else if (command === "undo") {
       const transactionOptions = mutationOptions(args);
@@ -770,7 +793,7 @@ async function dispatch(
         for await (const record of db.follow(since))
           process.stdout.write(`${canonicalJson(record)}\n`);
       } else {
-        process.stdout.write(db.tail(since) as string);
+        db.tail(since, process.stdout);
       }
     } else if (command === "backup") {
       if (args.length !== 1) usage("backup needs exactly one destination");

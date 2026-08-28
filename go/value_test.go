@@ -32,6 +32,30 @@ func TestCanonicalJSONScalarAndEscapeMatrix(t *testing.T) {
 	}
 }
 
+func TestDecodeJSONRejectsUnpairedUnicodeSurrogates(t *testing.T) {
+	for _, raw := range []string{
+		`"\ud800"`,
+		`"\udfff"`,
+		`{"\ud800":1}`,
+	} {
+		if _, err := DecodeJSON(strings.NewReader(raw)); !errors.Is(err, ErrType) {
+			t.Errorf("DecodeJSON(%s) error = %v, want TypeError", raw, err)
+		}
+	}
+
+	for raw, want := range map[string]string{
+		`"\ud83d\ude00"`: "😀",
+		`"\ufffd"`:       "�",
+		`"�"`:            "�",
+		`"\\ud800"`:      `\ud800`,
+	} {
+		decoded, err := DecodeJSON(strings.NewReader(raw))
+		if err != nil || decoded != want {
+			t.Errorf("DecodeJSON(%s) = %#v, %v; want %q", raw, decoded, err, want)
+		}
+	}
+}
+
 func TestCanonicalIntegralFloatBoundariesRemainStrictlyDecodable(t *testing.T) {
 	positiveLimit := math.Ldexp(1, 63)
 	negativeLimit := -positiveLimit

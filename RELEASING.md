@@ -54,7 +54,7 @@ The root tag starts `.github/workflows/release.yml`. The workflow:
 
 No approval or registry token is required after the two trusted publishers are configured.
 
-Tags and registries are append-only. If publication partially fails, keep the GitHub release draft, document the state, and fix forward with a patch version; never move a public tag.
+Tags and registries are append-only. If a registry job fails after the draft is created, inspect that registry before retrying. When the version is definitely absent, rerun only failed jobs and their dependents with `gh run rerun RUN_ID --failed`; never rerun all jobs after draft creation because draft creation intentionally fails closed when the release already exists. If registry acceptance is partial or ambiguous, keep the draft, document the state, and fix forward with a patch version. Never republish immutable registry files or move a public tag.
 
 ## 5. Verify as a consumer
 

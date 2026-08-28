@@ -11,7 +11,12 @@ import (
 	"strings"
 )
 
-const maxPortableLineBytes = 8*MaxValueBytes + 64*1024
+const (
+	maxPortableLineBytes = 8*MaxValueBytes + 64*1024
+	// A receipt embeds one maximum-size event and repeats its created selectors
+	// so restore can allocate local ids even when event data is redacted later.
+	maxPortableSnapshotLineBytes = 2*maxPortableLineBytes + 64*1024
+)
 
 // Apply idempotently applies a portable event/1 NDJSON stream. The whole
 // stream commits or rolls back as one SQLite write transaction.
@@ -62,6 +67,9 @@ func (db *DB) applyStream(ctx context.Context, reader io.Reader, recordReport fu
 		for lineNumber := 1; ; lineNumber++ {
 			line, readErr := readPortableLine(buffered)
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				if errors.Is(readErr, ErrTooLarge) {
+					return readErr
+				}
 				return wrap(ErrFormat, readErr, "cannot read event stream")
 			}
 			if len(bytes.TrimSpace(line)) > 0 {
@@ -85,11 +93,25 @@ func (db *DB) applyStream(ctx context.Context, reader io.Reader, recordReport fu
 }
 
 func readPortableLine(reader *bufio.Reader) ([]byte, error) {
-	line, err := reader.ReadBytes('\n')
-	if len(line) > maxPortableLineBytes {
-		return nil, fail(ErrTooLarge, "portable NDJSON line is %d bytes; keep each encoded record at or below %d bytes", len(line), maxPortableLineBytes)
+	return readPortableLineLimit(reader, maxPortableLineBytes)
+}
+
+func readPortableLineLimit(reader *bufio.Reader, maxBytes int) ([]byte, error) {
+	line := make([]byte, 0, min(reader.Size(), maxBytes))
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+			fragment = fragment[:len(fragment)-1]
+		}
+		if len(fragment) > maxBytes-len(line) {
+			return nil, fail(ErrTooLarge, "portable NDJSON payload exceeds %d bytes; split or reduce the encoded record", maxBytes)
+		}
+		line = append(line, fragment...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, err
 	}
-	return line, err
 }
 
 func (db *DB) applyEventLine(ctx context.Context, runner sqlRunner, raw []byte, lineNumber int) (TxReport, error) {

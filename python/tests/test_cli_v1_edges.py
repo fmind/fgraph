@@ -6,7 +6,6 @@ import json
 import subprocess
 import sys
 from contextlib import nullcontext
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +128,64 @@ def test_cli_explain_datoms_receipt_snapshot_restore_and_excise(tmp_path: Path) 
         ).stdout
     )
     assert excised["status"] == "applied"
+
+
+def test_cli_snapshot_streams_directly_to_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class StreamingSnapshotDb:
+        def snapshot(self, writer: Any) -> None:
+            writer.write("snapshot-line\n")
+
+    monkeypatch.setattr(cli, "_open", lambda *_args, **_kwargs: nullcontext(StreamingSnapshotDb()))
+
+    cli.snapshot_command(db=None)
+
+    assert capsys.readouterr().out == "snapshot-line\n"
+
+
+def test_cli_restore_streams_input_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = tmp_path / "snapshot.ndjson"
+    snapshot.write_text("header\nfooter\n", encoding="utf-8")
+    consumed: list[str] = []
+
+    class StreamingRestoreDb:
+        def restore(self, lines: Any) -> None:
+            assert not isinstance(lines, str)
+            consumed.extend(lines)
+
+        def schema(self) -> dict[str, int]:
+            return {"basis_tx": 64}
+
+    monkeypatch.setattr(cli, "_open", lambda *_args, **_kwargs: nullcontext(StreamingRestoreDb()))
+
+    cli.restore_command(source=str(snapshot), db=None, json_output=True)
+
+    assert consumed == ["header\n", "footer\n"]
+
+
+def test_cli_tail_writes_each_private_iterator_event_before_reading_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    written: list[str] = []
+    events = [
+        {"fgraph": "event/1", "event": "first"},
+        {"fgraph": "event/1", "event": "second"},
+    ]
+
+    class StreamingTailDb:
+        def _iter_event_records(self, _since: int) -> Any:
+            yield 65, events[0]
+            assert len(written) == 1
+            yield 66, events[1]
+
+    monkeypatch.setattr(cli, "_open", lambda *_args, **_kwargs: nullcontext(StreamingTailDb()))
+    monkeypatch.setattr(cli.typer, "echo", written.append)
+
+    cli.tail(since=64, follow=False, db=None)
+
+    assert written == [json.dumps(event, separators=(",", ":"), sort_keys=True) for event in events]
 
 
 def test_cli_new_commands_reject_invalid_structured_inputs(tmp_path: Path) -> None:
@@ -300,11 +357,6 @@ def test_cli_schema_manifest_round_trip(tmp_path: Path) -> None:
 
 
 def test_cli_stream_and_process_error_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "stdin", StringIO("streamed"))
-    assert cli._input_text("-", context="test") == "streamed"  # noqa: SLF001
-    with pytest.raises(fgraph.FormatError, match="cannot be read"):
-        cli._input_text(str(tmp_path / "missing"), context="test")  # noqa: SLF001
-
     lines_path = tmp_path / "lines.ndjson"
     lines_path.write_text("one\ntwo\n", encoding="utf-8")
     with cli._input_lines(str(lines_path), context="test") as lines:  # noqa: SLF001
@@ -328,7 +380,7 @@ def test_cli_stream_and_process_error_paths(tmp_path: Path, monkeypatch: pytest.
         list(payloads)
 
     class SnapshotlessDb:
-        def snapshot(self) -> None:
+        def snapshot(self, _writer: Any) -> None:
             return None
 
     monkeypatch.setattr(cli, "_open", lambda *_args, **_kwargs: nullcontext(SnapshotlessDb()))
