@@ -77,6 +77,75 @@ compare_replayed_public() { # $1 = expected prefix, $2 = replayed prefix
   done
 }
 
+check_default_path_migration() { # $1 = runtime
+  runtime=$1
+  directory="${WORK}/${runtime}-default-path"
+  mkdir -p "${directory}"
+  (
+    cd "${directory}"
+    unset FGRAPH_DB
+    run_cli "${runtime}" init --db fgraph.db --json >/dev/null
+    run_cli "${runtime}" version >/dev/null
+    run_cli "${runtime}" --help >/dev/null 2>&1
+    if run_cli "${runtime}" init --json >implicit.stdout 2>implicit.stderr; then
+      echo "crosscheck: ${runtime} silently bypassed legacy fgraph.db" >&2
+      exit 1
+    fi
+    grep -F -- 'FormatError:' implicit.stderr >/dev/null
+    grep -F -- '--db fgraph.db' implicit.stderr >/dev/null
+    grep -F -- '--db facts.fgraph' implicit.stderr >/dev/null
+    test ! -e facts.fgraph
+
+    if (export FGRAPH_DB=''; run_cli "${runtime}" init --json) >empty-env.stdout 2>empty-env.stderr; then
+      echo "crosscheck: ${runtime} accepted an empty FGRAPH_DB" >&2
+      exit 1
+    else
+      empty_status=$?
+    fi
+    test "${empty_status}" -eq 1
+    grep -F -- 'FormatError:' empty-env.stderr >/dev/null
+    grep -F -- 'database path is empty' empty-env.stderr >/dev/null
+    test ! -e facts.fgraph
+
+    if run_cli "${runtime}" init --definitely-invalid >invalid.stdout 2>invalid.stderr; then
+      echo "crosscheck: ${runtime} accepted an unknown init option" >&2
+      exit 1
+    else
+      invalid_status=$?
+    fi
+    test "${invalid_status}" -eq 2
+
+    if run_cli "${runtime}" get example --at definitely-not-an-int >invalid-at.stdout 2>invalid-at.stderr; then
+      echo "crosscheck: ${runtime} accepted a non-integer historical selector" >&2
+      exit 1
+    else
+      invalid_at_status=$?
+    fi
+    test "${invalid_at_status}" -eq 2
+
+    touch facts.fgraph
+    if run_cli "${runtime}" init --json >unclaimed.stdout 2>unclaimed.stderr; then
+      echo "crosscheck: ${runtime} initialized an unclaimed facts.fgraph beside the legacy database" >&2
+      exit 1
+    else
+      unclaimed_status=$?
+    fi
+    test "${unclaimed_status}" -eq 1
+    grep -F -- 'not an initialized fgraph database' unclaimed.stderr >/dev/null
+    test -e facts.fgraph
+    test ! -s facts.fgraph
+    rm facts.fgraph
+
+    run_cli "${runtime}" init --db facts.fgraph --json >/dev/null
+    run_cli "${runtime}" init --json >/dev/null
+  )
+}
+
+echo "crosscheck: verifying the shared default-path migration guard"
+for runtime in ${RUNTIMES}; do
+  check_default_path_migration "${runtime}"
+done
+
 echo "crosscheck: writing the canonical scenario with every runtime"
 for writer in ${RUNTIMES}; do
   run_scenario "${writer}" "${WORK}/${writer}.db"

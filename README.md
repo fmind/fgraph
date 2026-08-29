@@ -1,6 +1,6 @@
 # fgraph
 
-**A temporal fact graph in one SQLite file — schema-optional, attributable, portable, and built for local AI systems.**
+**fgraph means Facts Graph: a temporal fact graph in one SQLite file — schema-optional, attributable, portable, and built for local AI systems.**
 
 fgraph stores knowledge as immutable EAV facts `⟨entity, attribute, value, asserted-tx, retracted-tx?⟩`. Current state is a view; history, provenance, and transaction receipts are first-class. It needs no server or loadable SQLite extension, yet provides bounded Datalog, keyword/vector search, exact snapshots, portable event replay, schema introspection, shapes, and a read-only-by-default MCP server.
 
@@ -76,17 +76,27 @@ npm add @fmind-dev/fgraph@^1.1.0
 ```
 
 ```go
-db, err := fgraph.Open("memory.db")
-if err != nil {
-    log.Fatal(err)
-}
-defer db.Close()
+func storeAda(ctx context.Context) (result error) {
+    db, err := fgraph.Open("memory.db")
+    if err != nil {
+        return fmt.Errorf("open fgraph: %w", err)
+    }
+    defer func() { result = errors.Join(result, db.Close()) }()
 
-_, err = db.Transact(ctx,
-    fgraph.E{"id": "ada", "person/name": "Ada Lovelace"},
-    fgraph.WithOperationID("person:ada:v1"),
-)
-entity, err := db.Entity(ctx, "ada")
+    report, err := db.Transact(ctx,
+        fgraph.E{"id": "ada", "person/name": "Ada Lovelace"},
+        fgraph.WithOperationID("person:ada:v1"),
+    )
+    if err != nil {
+        return fmt.Errorf("store Ada: %w", err)
+    }
+    entity, err := db.Entity(ctx, "ada")
+    if err != nil {
+        return fmt.Errorf("read Ada: %w", err)
+    }
+    fmt.Println(report.Tx, entity)
+    return nil
+}
 ```
 
 ```typescript
@@ -108,6 +118,10 @@ Run the checked-in examples with `mise run test:examples`.
 ## CLI
 
 All three implementations expose the same v1 commands. The examples below use an installed `fgraph`; from the checkout, substitute `uv run --project python fgraph`, `go/bin/fgraph`, or `node typescript/dist/cli.js` after building.
+
+`--db` defaults to `facts.fgraph` in the current directory. `FGRAPH_DB` overrides that default, and an explicit `--db` takes precedence over the environment. An explicitly selected path must not be empty; unset `FGRAPH_DB` to use the default.
+
+Upgrading from a release that used `fgraph.db` does not silently create a second database: when that legacy file exists, an implicit database-opening command requires `facts.fgraph` to already be an initialized fgraph database. Otherwise it fails with an actionable `FormatError`. Pass `--db fgraph.db` to keep using the legacy file, or explicitly pass `--db facts.fgraph` to select and initialize the new default. Help and version commands do not inspect either file.
 
 ```bash
 fgraph --db project.db add \
@@ -184,9 +198,9 @@ Use `fgraph` for data modeling, transactions, temporal reads, and queries. Use `
 
 The checked-in benchmark exercises each native CLI independently at 1k, 10k, and 100k named entities. The 100k workload writes three scalar application facts per entity plus 5,000 caller-provided 384-dimensional vectors: 305,000 application facts in 500-entity transactions. Read figures are medians of three fresh-process end-to-end CLI runs, so runtime and package startup are included. The harness invokes the installed Python entry point, compiled Go binary, and compiled Node.js CLI directly.
 
-![Batched ingest throughput across Python, Go, and TypeScript](benchmarks/ingest-throughput.svg)
+![Batched NDJSON import throughput across Python, Go, and TypeScript](benchmarks/ingest-throughput.svg)
 
-![Fresh-process read latency at 100,000 entities](benchmarks/read-latency.svg)
+![Grouped fresh-process CLI read latency by operation at 100,000 entities](benchmarks/read-latency.svg)
 
 <!-- benchmark-results:start -->
 
@@ -224,7 +238,7 @@ Use another system for high-concurrency distributed writers, tamper-evident logs
 
 ## Repository
 
-- [`docs/content/docs/spec.md`](docs/content/docs/spec.md) — normative fgraph v1 / SQLite format-v2 contract.
+- [`docs/content/spec.md`](docs/content/spec.md) — normative fgraph v1 / SQLite format-v2 contract.
 - [`python/`](python/), [`go/`](go/), [`typescript/`](typescript/) — native peers.
 - [`conformance/`](conformance/) — shared behavior, differential scenario, and immutable format-v2 fixture.
 - [`examples/`](examples/) — runnable acceptance examples.

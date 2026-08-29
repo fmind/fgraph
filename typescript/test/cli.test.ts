@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -64,6 +70,85 @@ afterEach(() => {
 });
 
 describe("CLI", () => {
+  it("uses facts.fgraph as the default database path", async () => {
+    const directory = temporaryDirectory();
+    const previousDirectory = process.cwd();
+    delete process.env.FGRAPH_DB;
+    process.chdir(directory);
+    try {
+      const initialized = await invoke("init");
+      expect(initialized.code).toBe(0);
+      expect(existsSync("facts.fgraph")).toBe(true);
+      expect(existsSync("fgraph.db")).toBe(false);
+
+      const environmentPath = join(directory, "environment.fgraph");
+      process.env.FGRAPH_DB = environmentPath;
+      expect((await invoke("init")).code).toBe(0);
+      expect(existsSync(environmentPath)).toBe(true);
+
+      const explicitPath = join(directory, "explicit.fgraph");
+      expect((await invoke("init", "--db", explicitPath)).code).toBe(0);
+      expect(existsSync(explicitPath)).toBe(true);
+    } finally {
+      process.chdir(previousDirectory);
+    }
+  });
+
+  it("requires an explicit choice when the legacy default exists", async () => {
+    const directory = temporaryDirectory();
+    const previousDirectory = process.cwd();
+    delete process.env.FGRAPH_DB;
+    process.chdir(directory);
+    try {
+      expect((await invoke("init", "--db", "fgraph.db")).code).toBe(0);
+
+      const implicit = await invoke("init");
+      expect(implicit.code).toBe(1);
+      expect(implicit.stderr).toContain("FormatError:");
+      expect(implicit.stderr).toContain("--db fgraph.db");
+      expect(implicit.stderr).toContain("--db facts.fgraph");
+      expect(existsSync("facts.fgraph")).toBe(false);
+
+      process.env.FGRAPH_DB = "";
+      const emptyEnvironment = await invoke("init");
+      expect(emptyEnvironment.code).toBe(1);
+      expect(emptyEnvironment.stderr).toContain("FormatError:");
+      expect(emptyEnvironment.stderr).toContain("database path is empty");
+      expect(existsSync("facts.fgraph")).toBe(false);
+      delete process.env.FGRAPH_DB;
+
+      const invalidSyntax = await invoke("init", "--definitely-invalid");
+      expect(invalidSyntax.code).toBe(2);
+      const invalidSelector = await invoke(
+        "get",
+        "example",
+        "--at",
+        "definitely-not-an-int",
+      );
+      expect(invalidSelector.code).toBe(2);
+
+      writeFileSync("facts.fgraph", "");
+      const unclaimed = await invoke("init");
+      expect(unclaimed.code).toBe(1);
+      expect(unclaimed.stderr).toContain("FormatError:");
+      expect(unclaimed.stderr).toContain("not an initialized fgraph database");
+      expect(existsSync("facts.fgraph")).toBe(true);
+      expect(statSync("facts.fgraph").size).toBe(0);
+      rmSync("facts.fgraph");
+
+      const environmentPath = join(directory, "environment.fgraph");
+      process.env.FGRAPH_DB = environmentPath;
+      expect((await invoke("init")).code).toBe(0);
+      expect(existsSync(environmentPath)).toBe(true);
+
+      expect((await invoke("init", "--db", "facts.fgraph")).code).toBe(0);
+      delete process.env.FGRAPH_DB;
+      expect((await invoke("init")).code).toBe(0);
+    } finally {
+      process.chdir(previousDirectory);
+    }
+  });
+
   it("executes the complete bounded command surface", async () => {
     const directory = temporaryDirectory();
     const database = join(directory, "graph.db");

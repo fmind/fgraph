@@ -1,5 +1,5 @@
 # fgraph monorepo task runner — the single source of truth for tools and tasks.
-# Git hooks (lefthook.yml) and CI reuse these exact tasks; see AGENTS.md and docs/content/docs/spec.md.
+# Git hooks (lefthook.yml) and CI reuse these exact tasks; see AGENTS.md and docs/content/spec.md.
 # The python/, go/, typescript/, and docs/ tasks cover every implementation and the documentation site.
 
 [settings.task]
@@ -200,6 +200,7 @@ env = { HUGO_ENABLEGITINFO = "false" }
 run = [
   "go mod verify",
   "hugo build --destination tmp/check --logLevel warn --panicOnWarning --printPathWarnings",
+  "FGRAPH_DOCS_BUILD_DIR=\"$PWD/tmp/check\" go test ./...",
 ]
 
 [tasks.test]
@@ -259,6 +260,7 @@ dir = "docs"
 # /<repo>/-prefixed links that --root-dir cannot resolve against public/.
 run = [
   "hugo build --destination tmp/test --baseURL http://localhost/ --quiet",
+  "FGRAPH_DOCS_BUILD_DIR=\"$PWD/tmp/test\" go test ./...",
   "lychee --offline --root-dir {{config_root}}/docs/tmp/test --no-progress 'tmp/test/**/*.html'",
 ]
 

@@ -5,7 +5,7 @@ One tag-triggered workflow proves the exact source, builds and smokes every arch
 ## 1. Freeze the candidate
 
 1. Confirm every runtime reports the same version with `mise run check:versions`.
-1. Review `docs/content/docs/spec.md` and the matching shared conformance cases.
+1. Review `docs/content/spec.md` and the matching shared conformance cases.
 1. Move user-visible changes from `Unreleased` to the dated version in `CHANGELOG.md`.
 1. Confirm package, file-format, event, snapshot, and minimum-runtime compatibility.
 

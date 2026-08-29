@@ -1,6 +1,6 @@
 ---
 title: Modeling time and uncertainty
-weight: 3
+weight: 4
 ---
 
 fgraph records **transaction time**: when the store learned or stopped believing a fact. It does not guess when that fact was true in the real world. Keep those two clocks separate so an audit can answer both questions precisely.

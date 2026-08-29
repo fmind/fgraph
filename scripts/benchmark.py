@@ -23,6 +23,7 @@ import tomllib
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -42,6 +43,7 @@ RUNTIME_COMMANDS = {
     "go": [str(ROOT / "go" / "bin" / "fgraph")],
     "typescript": ["node", str(ROOT / "typescript" / "dist" / "cli.js")],
 }
+RUNTIME_LABELS = {"python": "Python", "go": "Go", "typescript": "TypeScript"}
 COLORS = {"python": "#646CFF", "go": "#22D3EE", "typescript": "#FB923C"}
 DASHES = {"python": "", "go": "8 5", "typescript": "2 4"}
 BACKGROUND = "#0F172A"
@@ -76,6 +78,13 @@ READ_OPERATIONS = {
     "query_scalar_filter",
     "vector_search_384",
 }
+READ_CHART_OPERATIONS = (
+    ("point_get", "Point get"),
+    ("query_scalar_filter", "Scalar-filter query"),
+    ("query_join", "Connected-join query"),
+    ("keyword_search", "Keyword search"),
+    ("vector_search_384", "Exact 384-d vector search"),
+)
 
 app = typer.Typer(add_completion=False, no_args_is_help=False)
 out = Console()
@@ -163,7 +172,7 @@ def _sqlite_versions() -> dict[str, str]:
 
 def _source_digest() -> str:
     paths = [
-        ROOT / "docs" / "content" / "docs" / "spec.md",
+        ROOT / "docs" / "content" / "spec.md",
         ROOT / "mise.toml",
         ROOT / "mise.lock",
         ROOT / "python" / ".python-version",
@@ -358,7 +367,44 @@ def _benchmark_runtime(
     return records
 
 
-def _svg_chart(
+def _nice_scale(maximum: float, *, target_intervals: int) -> tuple[float, float]:
+    if maximum <= 0:
+        return 1.0, 1.0
+    rough_step = maximum / target_intervals
+    magnitude = 10 ** math.floor(math.log10(rough_step))
+    normalized = rough_step / magnitude
+    factor = next(candidate for candidate in (1.0, 2.0, 2.5, 5.0, 10.0) if normalized <= candidate)
+    step = factor * magnitude
+    return math.ceil(maximum / step) * step, step
+
+
+def _runtime_marker(
+    runtime: str,
+    x: float,
+    y: float,
+    *,
+    fill: str,
+    stroke: str | None = None,
+    css_class: str | None = None,
+    size: float = 5,
+) -> str:
+    attributes = f' class="{css_class}" data-runtime="{runtime}"' if css_class is not None else ""
+    stroke_attribute = f' stroke="{stroke}" stroke-width="1.5"' if stroke is not None else ""
+    if runtime == "go":
+        return (
+            f'<rect{attributes} x="{x - size:.1f}" y="{y - size:.1f}" width="{size * 2:.1f}" '
+            f'height="{size * 2:.1f}" fill="{fill}"{stroke_attribute}/>'
+        )
+    if runtime == "typescript":
+        return (
+            f'<path{attributes} d="M {x:.1f} {y - size - 1:.1f} L {x + size + 1:.1f} {y:.1f} '
+            f'L {x:.1f} {y + size + 1:.1f} L {x - size - 1:.1f} {y:.1f} Z" '
+            f'fill="{fill}"{stroke_attribute}/>'
+        )
+    return f'<circle{attributes} cx="{x:.1f}" cy="{y:.1f}" r="{size:.1f}" fill="{fill}"{stroke_attribute}/>'
+
+
+def _line_chart(
     title: str,
     description: str,
     series: dict[str, list[tuple[float, float]]],
@@ -374,7 +420,7 @@ def _svg_chart(
     x_values = [math.log10(point[0]) if log_x else point[0] for point in points]
     y_values = [point[1] for point in points]
     x_min, x_max = min(x_values), max(x_values)
-    y_max = max(y_values) * 1.1 or 1.0
+    y_max, y_step = _nice_scale(max(y_values), target_intervals=6)
 
     def x_position(value: float) -> float:
         normalized = math.log10(value) if log_x else value
@@ -383,36 +429,26 @@ def _svg_chart(
     def y_position(value: float) -> float:
         return top + plot_height - value / y_max * plot_height
 
-    def marker(runtime: str, x: float, y: float, color: str) -> str:
-        if runtime == "go":
-            return f'<rect x="{x - 5:.1f}" y="{y - 5:.1f}" width="10" height="10" fill="{color}"/>'
-        if runtime == "typescript":
-            return (
-                f'<path d="M {x:.1f} {y - 6:.1f} L {x + 6:.1f} {y:.1f} '
-                f'L {x:.1f} {y + 6:.1f} L {x - 6:.1f} {y:.1f} Z" fill="{color}"/>'
-            )
-        return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}"/>'
-
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" role="img" '
         f'aria-labelledby="chart-title chart-description" viewBox="0 0 {width} {height}">',
-        f'<title id="chart-title">{title}</title><desc id="chart-description">{description}</desc>',
+        f'<title id="chart-title">{escape(title)}</title><desc id="chart-description">{escape(description)}</desc>',
         f'<rect width="{width}" height="{height}" fill="{BACKGROUND}"/>',
         f'<rect x="{left}" y="{top}" width="{plot_width}" height="{plot_height}" fill="{PANEL}" stroke="{BORDER}"/>',
         f'<text x="{width / 2}" y="28" text-anchor="middle" '
-        f'font-family="{HEADING_FONT}" font-size="20" font-weight="600" fill="{FOREGROUND}">{title}</text>',
+        f'font-family="{HEADING_FONT}" font-size="20" font-weight="600" fill="{FOREGROUND}">{escape(title)}</text>',
     ]
-    for step in range(6):
-        value = y_max * step / 5
+    for step in range(round(y_max / y_step) + 1):
+        value = y_step * step
         y = y_position(value)
         lines.append(f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" stroke="{BORDER}"/>')
         lines.append(
             f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" '
             f'font-family="{BODY_FONT}" font-size="12" fill="{MUTED}">'
             f"{value:,.0f}</text>"
-            if y_max >= 100
+            if y_step >= 1
             else f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" '
-            f'font-family="{BODY_FONT}" font-size="12" fill="{MUTED}">{value:.1f}</text>'
+            f'font-family="{BODY_FONT}" font-size="12" fill="{MUTED}">{value:.2f}</text>'
         )
     for runtime, values in series.items():
         coordinates = " ".join(f"{x_position(x):.1f},{y_position(y):.1f}" for x, y in values)
@@ -423,7 +459,7 @@ def _svg_chart(
             f'<polyline points="{coordinates}" fill="none" stroke="{color}" stroke-width="3"{dash_attribute}/>'
         )
         for x, y in values:
-            lines.append(marker(runtime, x_position(x), y_position(y), color))
+            lines.append(_runtime_marker(runtime, x_position(x), y_position(y), fill=color))
     lines.extend(
         f'<text x="{x_position(x):.1f}" y="{top + plot_height + 24}" text-anchor="middle" '
         f'font-family="{BODY_FONT}" font-size="12" fill="{MUTED}">{int(x):,}</text>'
@@ -438,10 +474,10 @@ def _svg_chart(
             f'<line x1="{legend_x}" y1="{height - 23}" x2="{legend_x + 24}" y2="{height - 23}" '
             f'stroke="{color}" stroke-width="3"{dash_attribute}/>'
         )
-        lines.append(marker(runtime, legend_x + 12, height - 23, color))
+        lines.append(_runtime_marker(runtime, legend_x + 12, height - 23, fill=color))
         lines.append(
             f'<text x="{legend_x + 34}" y="{height - 18}" font-family="{BODY_FONT}" '
-            f'font-size="13" fill="{FOREGROUND}">{runtime}</text>'
+            f'font-size="13" fill="{FOREGROUND}">{RUNTIME_LABELS[runtime]}</text>'
         )
         legend_x += 150
     lines.extend(
@@ -457,7 +493,120 @@ def _svg_chart(
     return "\n".join(lines) + "\n"
 
 
-def _write_charts(records: Sequence[dict[str, Any]], directory: Path) -> None:
+def _grouped_bar_chart(
+    title: str,
+    description: str,
+    series: dict[str, dict[str, tuple[float, float, float]]],
+    *,
+    categories: Sequence[tuple[str, str]],
+    x_label: str,
+) -> str:
+    width, height = 920, 600
+    left, top, right, bottom = 220, 60, 55, 110
+    plot_width, plot_height = width - left - right, height - top - bottom
+    maximum = max(bounds[2] for values in series.values() for bounds in values.values())
+    x_max, x_step = _nice_scale(maximum, target_intervals=7)
+    group_height = plot_height / len(categories)
+    bar_height, bar_gap = 16.0, 6.0
+    bars_height = len(series) * bar_height + (len(series) - 1) * bar_gap
+
+    def x_position(value: float) -> float:
+        return left + value / x_max * plot_width
+
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-labelledby="chart-title chart-description" viewBox="0 0 {width} {height}">',
+        f'<title id="chart-title">{escape(title)}</title><desc id="chart-description">{escape(description)}</desc>',
+        f'<rect width="{width}" height="{height}" fill="{BACKGROUND}"/>',
+        f'<rect x="{left}" y="{top}" width="{plot_width}" height="{plot_height}" fill="{PANEL}" stroke="{BORDER}"/>',
+        f'<text x="{width / 2}" y="30" text-anchor="middle" '
+        f'font-family="{HEADING_FONT}" font-size="20" font-weight="600" fill="{FOREGROUND}">{escape(title)}</text>',
+    ]
+
+    for step in range(round(x_max / x_step) + 1):
+        value = x_step * step
+        x = x_position(value)
+        lines.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_height}" stroke="{BORDER}"/>')
+        lines.append(
+            f'<text x="{x:.1f}" y="{top + plot_height + 23}" text-anchor="middle" '
+            f'font-family="{BODY_FONT}" font-size="12" fill="{MUTED}">{value:,.0f}</text>'
+        )
+
+    for category_index, (operation, label) in enumerate(categories):
+        group_top = top + category_index * group_height
+        center = group_top + group_height / 2
+        if category_index:
+            lines.append(
+                f'<line x1="{left}" y1="{group_top:.1f}" x2="{left + plot_width}" y2="{group_top:.1f}" '
+                f'stroke="{BORDER}" stroke-opacity="0.7"/>'
+            )
+        lines.append(
+            f'<text x="{left - 15}" y="{center + 4:.1f}" text-anchor="end" '
+            f'font-family="{BODY_FONT}" font-size="13" fill="{FOREGROUND}">{escape(label)}</text>'
+        )
+        first_bar_y = center - bars_height / 2
+        for runtime_index, runtime in enumerate(series):
+            median, minimum, maximum = series[runtime][operation]
+            bar_y = first_bar_y + runtime_index * (bar_height + bar_gap)
+            bar_center = bar_y + bar_height / 2
+            median_x = x_position(median)
+            minimum_x = x_position(minimum)
+            maximum_x = x_position(maximum)
+            median_label = f"{median:.0f}"
+            accessible = (
+                f"{RUNTIME_LABELS[runtime]}, {label}: median {median_label} milliseconds; "
+                f"observed range {minimum:.0f} to {maximum:.0f} milliseconds"
+            )
+            lines.append(
+                f'<rect class="data-bar" data-runtime="{runtime}" data-operation="{operation}" '
+                f'x="{left}" y="{bar_y:.1f}" width="{median_x - left:.1f}" height="{bar_height:.1f}" '
+                f'fill="{COLORS[runtime]}" fill-opacity="0.72" stroke="{COLORS[runtime]}" role="img" '
+                f'aria-label="{escape(accessible)}">'
+                f"<title>{escape(accessible)}</title></rect>"
+            )
+            lines.extend(
+                (
+                    f'<line x1="{minimum_x:.1f}" y1="{bar_center:.1f}" x2="{maximum_x:.1f}" y2="{bar_center:.1f}" '
+                    f'stroke="{FOREGROUND}" stroke-width="1.5"/>',
+                    f'<line x1="{minimum_x:.1f}" y1="{bar_center - 4:.1f}" x2="{minimum_x:.1f}" '
+                    f'y2="{bar_center + 4:.1f}" stroke="{FOREGROUND}" stroke-width="1.5"/>',
+                    f'<line x1="{maximum_x:.1f}" y1="{bar_center - 4:.1f}" x2="{maximum_x:.1f}" '
+                    f'y2="{bar_center + 4:.1f}" stroke="{FOREGROUND}" stroke-width="1.5"/>',
+                    _runtime_marker(
+                        runtime,
+                        median_x,
+                        bar_center,
+                        fill=BACKGROUND,
+                        stroke=FOREGROUND,
+                        css_class="runtime-marker",
+                        size=3.5,
+                    ),
+                    f'<text class="data-label" x="{maximum_x + 6:.1f}" y="{bar_center + 4:.1f}" '
+                    f'font-family="{BODY_FONT}" font-size="11" fill="{FOREGROUND}">{median_label}</text>',
+                )
+            )
+
+    lines.append(
+        f'<text x="{left + plot_width / 2}" y="{height - 54}" text-anchor="middle" '
+        f'font-family="{BODY_FONT}" font-size="13" fill="{MUTED}">{escape(x_label)}</text>'
+    )
+    legend_x = left
+    for runtime in series:
+        lines.append(
+            f'<rect x="{legend_x}" y="{height - 30}" width="22" height="12" '
+            f'fill="{COLORS[runtime]}" fill-opacity="0.72" stroke="{COLORS[runtime]}"/>'
+        )
+        lines.append(_runtime_marker(runtime, legend_x + 11, height - 24, fill=BACKGROUND, stroke=FOREGROUND, size=3.5))
+        lines.append(
+            f'<text x="{legend_x + 30}" y="{height - 19}" font-family="{BODY_FONT}" '
+            f'font-size="13" fill="{FOREGROUND}">{RUNTIME_LABELS[runtime]}</text>'
+        )
+        legend_x += 155
+    lines.append("</svg>")
+    return "\n".join(lines) + "\n"
+
+
+def write_charts(records: Sequence[dict[str, Any]], directory: Path) -> None:
     observations = [record for record in records if record.get("record") != "metadata"]
     directory.mkdir(parents=True, exist_ok=True)
     ingest: dict[str, list[tuple[float, float]]] = {}
@@ -471,44 +620,43 @@ def _write_charts(records: Sequence[dict[str, Any]], directory: Path) -> None:
             key=lambda point: point[0],
         )
     (directory / "ingest-throughput.svg").write_text(
-        _svg_chart(
-            "Batched ingest throughput",
-            "Entities ingested per second using bounded transactions.",
+        _line_chart(
+            "Batched NDJSON import throughput",
+            "End-to-end CLI throughput for NDJSON imports using bounded transactions; higher is better.",
             ingest,
-            x_label="entities (log scale)",
-            y_label="entities / second",
+            x_label="Entities imported (log scale)",
+            y_label="Throughput (entities/s; higher is better)",
             log_x=True,
         ),
         encoding="utf-8",
     )
 
     largest = max(int(record["entities"]) for record in observations)
-    reads: dict[str, list[tuple[float, float]]] = {}
-    operations = ["point_get", "query_scalar_filter", "query_join", "keyword_search", "vector_search_384"]
+    reads: dict[str, dict[str, tuple[float, float, float]]] = {}
     for runtime in RUNTIME_COMMANDS:
-        reads[runtime] = [
-            (
-                float(index + 1),
-                float(
-                    next(
-                        record["seconds"]
-                        for record in observations
-                        if record["runtime"] == runtime
-                        and record["entities"] == largest
-                        and record["operation"] == operation
-                    )
-                ),
+        reads[runtime] = {}
+        for operation, _label in READ_CHART_OPERATIONS:
+            record = next(
+                record
+                for record in observations
+                if record["runtime"] == runtime and record["entities"] == largest and record["operation"] == operation
             )
-            for index, operation in enumerate(operations)
-        ]
+            reads[runtime][operation] = (
+                float(record["seconds"]) * 1_000,
+                float(record["min_seconds"]) * 1_000,
+                float(record["max_seconds"]) * 1_000,
+            )
+    trials = {int(record["trials"]) for record in observations if record.get("operation") in READ_OPERATIONS}
+    if len(trials) != 1:
+        raise ValueError("benchmark read observations disagree on trial count")
     (directory / "read-latency.svg").write_text(
-        _svg_chart(
-            f"Fresh-process read latency at {largest:,} entities",
-            "Median end-to-end CLI latency: point get, scalar filter, connected join, "
-            "keyword search, and vector search.",
+        _grouped_bar_chart(
+            f"Fresh-process CLI read latency at {largest:,} entities",
+            f"Grouped medians of {next(iter(trials))} fresh-process end-to-end CLI trials; lower is better. "
+            "Whiskers show the observed minimum and maximum.",
             reads,
-            x_label="1 get · 2 scalar filter · 3 join · 4 keyword · 5 vector",
-            y_label="seconds (median)",
+            categories=READ_CHART_OPERATIONS,
+            x_label="Median fresh-process CLI latency (ms; lower is better)",
         ),
         encoding="utf-8",
     )
@@ -628,7 +776,7 @@ def _verify_records(
 def _verify_charts(records: Sequence[dict[str, Any]], directory: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="fgraph-benchmark-charts-") as temporary:
         expected_directory = Path(temporary)
-        _write_charts(records, expected_directory)
+        write_charts(records, expected_directory)
         for name in ("ingest-throughput.svg", "read-latency.svg"):
             chart = directory / name
             expected = expected_directory / name
@@ -864,7 +1012,7 @@ def main(
     if charts_dir is not None:
         if set(selected_runtimes) != set(RUNTIME_COMMANDS) or len(selected_sizes) < 2:
             raise typer.BadParameter("chart generation requires all runtimes and at least two sizes")
-        _write_charts(records, charts_dir)
+        write_charts(records, charts_dir)
     if _canonical_artifacts(output, charts_dir):
         _replace_readme_results(records, verify=False)
 

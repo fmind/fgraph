@@ -1,6 +1,6 @@
 ---
 title: RAG with fgraph
-weight: 5
+weight: 6
 ---
 
 fgraph is a lightweight local RAG store: chunks become entities carrying text (FTS-indexed), embeddings, metadata, and — unlike a pure vector store — _relations and provenance_. Default search ranks only application attributes, and each match includes its asserting time and optional author/source. One file, zero services, bring-your-own embeddings.

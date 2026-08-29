@@ -36,5 +36,8 @@ docs/tmp/
 *.db
 *.db-shm
 *.db-wal
+*.fgraph
+*.fgraph-shm
+*.fgraph-wal
 !conformance/fixtures/format-v2.db
 tmp/

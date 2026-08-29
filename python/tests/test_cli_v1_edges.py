@@ -45,6 +45,113 @@ def _invoke(arguments: list[str], *, stdin: str | None = None) -> Any:
     return result
 
 
+def test_cli_default_database_path_is_facts_graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FGRAPH_DB", raising=False)
+
+    result = runner.invoke(
+        cli.app,
+        ["init"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert Path("facts.fgraph").is_file()
+    assert not Path("fgraph.db").exists()
+
+    environment_path = tmp_path / "environment.fgraph"
+    monkeypatch.setenv("FGRAPH_DB", str(environment_path))
+    result = runner.invoke(cli.app, ["init"], env={"FGRAPH_CLOCK": "1767225600000000"})
+    assert result.exit_code == 0, result.output
+    assert environment_path.is_file()
+
+    explicit_path = tmp_path / "explicit.fgraph"
+    result = runner.invoke(
+        cli.app,
+        ["init", "--db", str(explicit_path)],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert result.exit_code == 0, result.output
+    assert explicit_path.is_file()
+
+
+def test_cli_legacy_implicit_default_requires_explicit_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FGRAPH_DB", raising=False)
+
+    legacy = runner.invoke(
+        cli.app,
+        ["init", "--db", "fgraph.db"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert legacy.exit_code == 0, legacy.output
+
+    implicit = runner.invoke(
+        cli.app,
+        ["init"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert implicit.exit_code == 1
+    assert isinstance(implicit.exception, fgraph.FormatError)
+    assert "--db fgraph.db" in str(implicit.exception)
+    assert "--db facts.fgraph" in str(implicit.exception)
+    assert not Path("facts.fgraph").exists()
+
+    empty_environment = runner.invoke(
+        cli.app,
+        ["init"],
+        env={"FGRAPH_CLOCK": "1767225600000000", "FGRAPH_DB": ""},
+    )
+    assert empty_environment.exit_code == 1
+    assert isinstance(empty_environment.exception, fgraph.FormatError)
+    assert "database path is empty" in str(empty_environment.exception)
+    assert not Path("facts.fgraph").exists()
+
+    invalid_syntax = runner.invoke(
+        cli.app,
+        ["init", "--definitely-invalid"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert invalid_syntax.exit_code == 2
+
+    Path("facts.fgraph").touch()
+    unclaimed = runner.invoke(
+        cli.app,
+        ["init"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert unclaimed.exit_code == 1
+    assert isinstance(unclaimed.exception, fgraph.FormatError)
+    assert "not an initialized fgraph database" in str(unclaimed.exception)
+    assert Path("facts.fgraph").stat().st_size == 0
+    Path("facts.fgraph").unlink()
+
+    environment_path = tmp_path / "environment.fgraph"
+    environment = runner.invoke(
+        cli.app,
+        ["init"],
+        env={
+            "FGRAPH_CLOCK": "1767225600000000",
+            "FGRAPH_DB": str(environment_path),
+        },
+    )
+    assert environment.exit_code == 0, environment.output
+
+    explicit = runner.invoke(
+        cli.app,
+        ["init", "--db", "facts.fgraph"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert explicit.exit_code == 0, explicit.output
+
+    both = runner.invoke(
+        cli.app,
+        ["init"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert both.exit_code == 0, both.output
+
+
 @pytest.mark.parametrize("command", ["export", "import"])
 def test_cli_omits_legacy_portable_commands(command: str) -> None:
     result = runner.invoke(cli.app, [command, "--help"])

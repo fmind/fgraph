@@ -1,6 +1,6 @@
 ---
 title: Integrations
-weight: 6
+weight: 7
 ---
 
 `fgraph mcp` serves one database to MCP-capable agents over stdio. It opens the file read-only by default. A project knowledge base therefore needs no safety flag:

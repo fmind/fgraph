@@ -1,6 +1,6 @@
 ---
 title: Operations and safety boundaries
-weight: 7
+weight: 8
 ---
 
 fgraph is embedded, not maintenance-free. The v1 contract makes integrity, recovery, concurrency, deletion, and resource limits explicit.

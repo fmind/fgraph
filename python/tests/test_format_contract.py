@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
-SPEC = ROOT / "docs" / "content" / "docs" / "spec.md"
+SPEC = ROOT / "docs" / "content" / "spec.md"
 FIXTURE = ROOT / "conformance" / "fixtures" / "format-v2.db"
 SCHEMA_QUERY = """
 SELECT type, name, sql

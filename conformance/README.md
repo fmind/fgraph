@@ -31,6 +31,7 @@ This determines allocation, timestamps, stable UUIDs, hashes, encoded values, an
 
 `crosscheck.ndjson` is the canonical compatibility scenario. `scripts/crosscheck.sh` proves:
 
+1. Every CLI refuses to bypass a legacy-only `fgraph.db` when selecting the new `facts.fgraph` default implicitly.
 1. All three writers produce exact ordered core rows.
 1. Every runtime reads every peer file with identical events, snapshots, entity/schema/query results, and keyword/vector search.
 1. Every runtime restores every peer snapshot to exact logical state.

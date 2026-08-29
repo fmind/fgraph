@@ -4,7 +4,7 @@ Thank you for improving fgraph. The project favors small, complete changes that 
 
 ## Before changing behavior
 
-- Read the [specification](docs/content/docs/spec.md). It is normative for the file format, semantics, APIs, CLI, MCP, and release proof.
+- Read the [specification](docs/content/spec.md). It is normative for the file format, semantics, APIs, CLI, MCP, and release proof.
 - Open an issue before changing the durable format, canonical JSON, allocation order, event/snapshot protocols, error taxonomy, or public cross-runtime behavior.
 - A normative change must land in Python, Go, and TypeScript together and add a shared case under `conformance/cases/`.
 - Keep core storage and tests network-free. Embeddings remain caller-provided.

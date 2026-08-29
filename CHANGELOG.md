@@ -1,8 +1,17 @@
 # Changelog
 
-All notable user-visible changes are documented here. fgraph follows [Semantic Versioning](https://semver.org/); the [specification](docs/content/docs/spec.md) defines the compatibility-bearing surfaces.
+All notable user-visible changes are documented here. fgraph follows [Semantic Versioning](https://semver.org/); the [specification](docs/content/spec.md) defines the compatibility-bearing surfaces.
 
 ## Unreleased
+
+### Added
+
+- Add flat Overview, CLI Reference, and cross-runtime SDK Reference documentation with rendered navigation invariants.
+
+### Changed
+
+- Default the Python, Go, and TypeScript CLIs to `facts.fgraph` when neither `--db` nor `FGRAPH_DB` is set, with consistent empty-path validation and a fail-closed migration guard that verifies the new default before bypassing an existing `fgraph.db`.
+- Replace the misleading connected-line read-latency figure with grouped operation bars while retaining the exact raw observations.
 
 ## [1.1.0] - 2026-08-28
 

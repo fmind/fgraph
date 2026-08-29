@@ -2,6 +2,7 @@
 import {
   closeSync,
   createReadStream,
+  lstatSync,
   openSync,
   readFileSync,
   readSync,
@@ -32,6 +33,8 @@ import {
 import { INT64_MAX, INT64_MIN } from "./values.js";
 
 const VERSION = "1.1.0";
+const DEFAULT_DATABASE_PATH = "facts.fgraph";
+const LEGACY_DEFAULT_DATABASE_PATH = "fgraph.db";
 
 class UsageError extends Error {
   readonly exitCode: number;
@@ -98,6 +101,53 @@ function flag(args: string[], name: string): boolean {
     }
   }
   return found;
+}
+
+function pathEntryExists(path: string, description: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return false;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new FormatError(
+      `cannot inspect ${description} database path ${JSON.stringify(path)}; check directory permissions: ${detail}`,
+    );
+  }
+}
+
+function guardImplicitDatabasePath(): void {
+  if (!pathEntryExists(LEGACY_DEFAULT_DATABASE_PATH, "legacy")) return;
+  if (!pathEntryExists(DEFAULT_DATABASE_PATH, "default"))
+    throw new FormatError(
+      `legacy default database ${LEGACY_DEFAULT_DATABASE_PATH} exists while ${DEFAULT_DATABASE_PATH} is absent; ` +
+        `use --db ${LEGACY_DEFAULT_DATABASE_PATH} to keep using it or explicitly pass --db ${DEFAULT_DATABASE_PATH} to create a new database`,
+    );
+
+  try {
+    connect(DEFAULT_DATABASE_PATH, { readOnly: true }).close();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new FormatError(
+      `legacy default database ${LEGACY_DEFAULT_DATABASE_PATH} exists and ${DEFAULT_DATABASE_PATH} is not an initialized fgraph database; ` +
+        `use --db ${LEGACY_DEFAULT_DATABASE_PATH} to keep using the legacy file or explicitly pass --db ${DEFAULT_DATABASE_PATH} to select the new default: ${detail}`,
+    );
+  }
+}
+
+function openSelectedDatabase(
+  path: string,
+  implicitDatabasePath: boolean,
+  readOnly: boolean,
+  queryBudget: number,
+): Db {
+  if (path === "")
+    throw new FormatError(
+      `database path is empty; pass --db PATH or unset FGRAPH_DB to use ${DEFAULT_DATABASE_PATH}`,
+    );
+  if (implicitDatabasePath) guardImplicitDatabasePath();
+  return open(path, readOnly, queryBudget);
 }
 
 function integer(value: string, context: string): number | bigint {
@@ -362,31 +412,13 @@ async function dispatch(
   command: string,
   args: string[],
   path: string,
+  implicitDatabasePath: boolean,
   machine: boolean,
   queryBudget: number,
 ): Promise<void> {
   if (command === "version") {
     if (args.length > 0) usage("version accepts no arguments");
     process.stdout.write(`${VERSION}\n`);
-    return;
-  }
-  if (command === "mcp") {
-    const write = flag(args, "--write");
-    const embedCommand = option(args, "--embed-cmd");
-    if (args.length > 0) usage(`mcp does not accept ${args.join(" ")}`);
-    const db = open(path, !write, queryBudget);
-    try {
-      // Keep the optional MCP SDK out of short-lived commands such as get and q.
-      const { runMcp } = await import("./mcp.js");
-      runMcp(
-        db,
-        embedCommand === undefined ? { write } : { write, embedCommand },
-      );
-    } catch (error) {
-      // A failed server handoff leaves the CLI responsible for releasing SQLite.
-      db.close();
-      throw error;
-    }
     return;
   }
   const commands = new Set([
@@ -418,9 +450,35 @@ async function dispatch(
     "tail",
     "backup",
     "doctor",
+    "mcp",
   ]);
   if (!commands.has(command))
     usage(`unknown command ${JSON.stringify(command)}`);
+
+  if (command === "mcp") {
+    const write = flag(args, "--write");
+    const embedCommand = option(args, "--embed-cmd");
+    if (args.length > 0) usage(`mcp does not accept ${args.join(" ")}`);
+    const db = openSelectedDatabase(
+      path,
+      implicitDatabasePath,
+      !write,
+      queryBudget,
+    );
+    try {
+      // Keep the optional MCP SDK out of short-lived commands such as get and q.
+      const { runMcp } = await import("./mcp.js");
+      runMcp(
+        db,
+        embedCommand === undefined ? { write } : { write, embedCommand },
+      );
+    } catch (error) {
+      // A failed server handoff leaves the CLI responsible for releasing SQLite.
+      db.close();
+      throw error;
+    }
+    return;
+  }
   const writable = new Set([
     "init",
     "add",
@@ -434,11 +492,20 @@ async function dispatch(
     "excise",
   ]);
   const repair = command === "doctor" && flag(args, "--repair");
-  const db = open(path, !(writable.has(command) || repair), queryBudget);
+  let openedDatabase: Db | undefined;
+  const database = (): Db => {
+    openedDatabase ??= openSelectedDatabase(
+      path,
+      implicitDatabasePath,
+      !(writable.has(command) || repair),
+      queryBudget,
+    );
+    return openedDatabase;
+  };
   try {
     if (command === "init" || command === "info") {
       if (args.length > 0) usage(`${command} accepts no arguments`);
-      emit(db.stats(), machine);
+      emit(database().stats(), machine);
     } else if (command === "add") {
       const batchValue = option(args, "--batch-size");
       const batchSize =
@@ -463,7 +530,7 @@ async function dispatch(
       if (batchSize !== undefined) {
         emit(
           await addBatches(
-            db,
+            database(),
             args[0] as string,
             batchSize,
             transactionOptions,
@@ -486,7 +553,7 @@ async function dispatch(
             "--if-basis-tx cannot span multiple transactions; use idempotent operation ids",
           );
         const reports = payloadList.map((payload) =>
-          db.transact(payload, transactionOptions),
+          database().transact(payload, transactionOptions),
         );
         emit(reports.length === 1 ? reports[0] : reports, machine);
       }
@@ -500,7 +567,7 @@ async function dispatch(
       if (attribute !== undefined) operation.push(attribute);
       if (args.length === 3)
         operation.push(parseJson(args[2] as string, "retract value"));
-      const report = db.transact(operation, transactionOptions);
+      const report = database().transact(operation, transactionOptions);
       emit(report, machine);
     } else if (command === "get") {
       const depth = positiveInteger(
@@ -510,11 +577,14 @@ async function dispatch(
       );
       const atText = option(args, "--at");
       if (args.length !== 1) usage("get needs exactly one entity");
-      const target = atText === undefined ? db : db.at(integer(atText, "at"));
-      emit(target.entity(reference(args[0] as string), depth), machine);
+      const entity = reference(args[0] as string);
+      const at = atText === undefined ? undefined : integer(atText, "at");
+      const target = at === undefined ? database() : database().at(at);
+      emit(target.entity(entity, depth), machine);
     } else if (command === "tx") {
       if (args.length !== 1) usage("tx needs exactly one transaction id");
-      emit(db.receipt(integer(args[0] as string, "transaction")), machine);
+      const transaction = integer(args[0] as string, "transaction");
+      emit(database().receipt(transaction), machine);
     } else if (command === "q") {
       const bindingsText = option(args, "--args");
       const atText = option(args, "--at");
@@ -532,8 +602,10 @@ async function dispatch(
         Array.isArray(bindings)
       )
         throw new TypeError("query and --args must be JSON objects");
+      const at = atText === undefined ? undefined : integer(atText, "at");
+      const target = at === undefined ? database() : database().at(at);
       emit(
-        (atText === undefined ? db : db.at(integer(atText, "at"))).q(
+        target.q(
           query as Record<string, unknown>,
           bindings as Record<string, unknown>,
         ),
@@ -556,7 +628,7 @@ async function dispatch(
       )
         throw new TypeError("query and --args must be JSON objects");
       emit(
-        db.explain(
+        database().explain(
           query as Record<string, unknown>,
           bindings as Record<string, unknown>,
         ),
@@ -578,7 +650,7 @@ async function dispatch(
         usage("datoms --components must be a JSON array");
       const index = (args[0] ?? "eavt") as "eavt" | "avet" | "vaet";
       emit(
-        db.datoms(index, {
+        database().datoms(index, {
           source,
           components,
           limit,
@@ -610,6 +682,7 @@ async function dispatch(
         vectorText === undefined
           ? undefined
           : vector(parseJson(vectorText, "search vector"), "search vector");
+      const graph = database();
       if (
         embedding === undefined &&
         embedCommand !== undefined &&
@@ -637,24 +710,21 @@ async function dispatch(
         searchOptions.vectorAttribute = vectorAttribute;
       if (textAttributes.length > 0)
         searchOptions.textAttributes = textAttributes;
-      emit(db.search(searchOptions), machine);
+      emit(graph.search(searchOptions), machine);
     } else if (command === "history" || command === "why") {
       if (args.length < 1 || args.length > 2)
         usage(`${command} needs entity and optional attribute`);
+      const entity = reference(args[0] as string);
       const value =
         command === "history"
-          ? db.history(reference(args[0] as string), args[1])
-          : db.why(reference(args[0] as string), args[1]);
+          ? database().history(entity, args[1])
+          : database().why(entity, args[1]);
       emit(value, machine);
     } else if (command === "diff") {
       if (args.length !== 2) usage("diff needs start and end transaction ids");
-      emit(
-        db.diff(
-          integer(args[0] as string, "start transaction"),
-          integer(args[1] as string, "end transaction"),
-        ),
-        machine,
-      );
+      const start = integer(args[0] as string, "start transaction");
+      const end = integer(args[1] as string, "end transaction");
+      emit(database().diff(start, end), machine);
     } else if (command === "declare") {
       const transactionOptions = mutationOptions(args);
       const declaredType = option(args, "--type");
@@ -685,7 +755,7 @@ async function dispatch(
         declaration.operationId = transactionOptions.operationId;
       if (transactionOptions.ifBasisTx !== undefined)
         declaration.ifBasisTx = transactionOptions.ifBasisTx;
-      emit(db.declare(args[0] as string, declaration), machine);
+      emit(database().declare(args[0] as string, declaration), machine);
     } else if (command === "shape") {
       const transactionOptions = mutationOptions(args);
       const required = options(args, "--required");
@@ -696,7 +766,7 @@ async function dispatch(
         usage("shape --closed and --open are mutually exclusive");
       if (args.length !== 1) usage("shape needs exactly one shape name");
       emit(
-        db.defineShape(args[0] as string, {
+        database().defineShape(args[0] as string, {
           required,
           allowed,
           closed,
@@ -711,53 +781,55 @@ async function dispatch(
       );
     } else if (command === "validate") {
       if (args.length !== 1) usage("validate needs exactly one entity");
-      emit(db.validate(reference(args[0] as string)), machine);
+      const entity = reference(args[0] as string);
+      emit(database().validate(entity), machine);
     } else if (command === "schema") {
       const includeSystem = flag(args, "--system");
       if (args.length > 1) usage("schema accepts at most one attribute prefix");
-      emit(db.schema(args[0], { includeSystem }), machine);
+      emit(database().schema(args[0], { includeSystem }), machine);
     } else if (command === "schema-export") {
       if (args.length > 0) usage("schema-export accepts no arguments");
-      emit(db.schemaManifest(), machine);
+      emit(database().schemaManifest(), machine);
     } else if (command === "schema-check") {
       if (args.length !== 1)
         usage("schema-check needs one JSON argument, @file, or -");
-      emit(
-        db.checkSchemaManifest(
-          parseJson(readArgument(args[0] as string), "schema manifest"),
-        ),
-        machine,
+      const manifest = parseJson(
+        readArgument(args[0] as string),
+        "schema manifest",
       );
+      emit(database().checkSchemaManifest(manifest), machine);
     } else if (command === "schema-apply") {
       const transactionOptions = mutationOptions(args);
       if (args.length !== 1)
         usage("schema-apply needs one JSON argument, @file, or -");
+      const manifest = parseJson(
+        readArgument(args[0] as string),
+        "schema manifest",
+      );
       emit(
-        db.applySchemaManifest(
-          parseJson(readArgument(args[0] as string), "schema manifest"),
-          transactionOptions,
-        ),
+        database().applySchemaManifest(manifest, transactionOptions),
         machine,
       );
     } else if (command === "apply") {
       if (args.length > 1) usage("apply accepts at most one event-stream file");
-      emit(
-        db.applySummary(inputLines(args[0] ?? "-", MAX_EVENT_BYTES)),
-        machine,
-      );
+      const lines = inputLines(args[0] ?? "-", MAX_EVENT_BYTES);
+      emit(database().applySummary(lines), machine);
     } else if (command === "snapshot") {
       if (args.length > 0)
         usage("snapshot writes to stdout and accepts no arguments");
-      db.snapshot(process.stdout);
+      database().snapshot(process.stdout);
     } else if (command === "restore") {
       if (args.length > 1) usage("restore accepts at most one snapshot file");
-      db.restore(inputLines(args[0] ?? "-", MAX_SNAPSHOT_LINE_BYTES));
-      emit({ ok: true, basis_tx: db._basisTx() }, machine);
+      const lines = inputLines(args[0] ?? "-", MAX_SNAPSHOT_LINE_BYTES);
+      const graph = database();
+      graph.restore(lines);
+      emit({ ok: true, basis_tx: graph._basisTx() }, machine);
     } else if (command === "undo") {
       const transactionOptions = mutationOptions(args);
       if (args.length !== 1) usage("undo needs exactly one transaction id");
+      const transaction = integer(args[0] as string, "transaction");
       emit(
-        db.undo(integer(args[0] as string, "transaction"), {
+        database().undo(transaction, {
           ...(transactionOptions.operationId === undefined
             ? {}
             : { operationId: transactionOptions.operationId }),
@@ -775,8 +847,9 @@ async function dispatch(
       )
         usage("excise requires --operation-id and --if-basis-tx");
       if (args.length !== 1) usage("excise needs exactly one entity");
+      const entity = reference(args[0] as string);
       emit(
-        db.excise(reference(args[0] as string), {
+        database().excise(entity, {
           operationId: transactionOptions.operationId,
           ifBasisTx: transactionOptions.ifBasisTx,
         }),
@@ -789,29 +862,34 @@ async function dispatch(
       );
       const keepFollowing = flag(args, "--follow");
       if (args.length > 0) usage("tail accepts only --since and --follow");
+      const graph = database();
       if (keepFollowing) {
-        for await (const record of db.follow(since))
+        for await (const record of graph.follow(since))
           process.stdout.write(`${canonicalJson(record)}\n`);
       } else {
-        db.tail(since, process.stdout);
+        graph.tail(since, process.stdout);
       }
     } else if (command === "backup") {
       if (args.length !== 1) usage("backup needs exactly one destination");
-      await db.backup(args[0] as string);
+      await database().backup(args[0] as string);
       emit({ path: args[0] }, machine);
     } else if (command === "doctor") {
       if (args.length > 0) usage("doctor accepts only --repair");
-      emit(db.doctor({ repair }), machine);
+      emit(database().doctor({ repair }), machine);
     }
   } finally {
-    db.close();
+    openedDatabase?.close();
   }
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const args = [...argv];
   try {
-    const path = option(args, "--db") ?? process.env.FGRAPH_DB ?? "fgraph.db";
+    const selectedPath = option(args, "--db");
+    const environmentPath = process.env.FGRAPH_DB;
+    const path = selectedPath ?? environmentPath ?? DEFAULT_DATABASE_PATH;
+    const implicitDatabasePath =
+      selectedPath === undefined && environmentPath === undefined;
     const machine = flag(args, "--json");
     const queryBudget = positiveInteger(
       option(args, "--query-budget") ??
@@ -827,7 +905,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (help) usage(undefined, 0);
     if (args.length === 0) usage();
     const command = args.shift() as string;
-    await dispatch(command, args, path, machine, queryBudget);
+    await dispatch(
+      command,
+      args,
+      path,
+      implicitDatabasePath,
+      machine,
+      queryBudget,
+    );
     return 0;
   } catch (error) {
     if (error instanceof UsageError) return error.exitCode;

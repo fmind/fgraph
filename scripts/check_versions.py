@@ -61,7 +61,7 @@ def main() -> None:
             "release guide",
         ),
         "getting-started installs": _uniform_matches(
-            ROOT / "docs" / "content" / "docs" / "getting-started.md",
+            ROOT / "docs" / "content" / "getting-started.md",
             r"(?:@v|\^)(\d+\.\d+\.\d+)",
             "getting-started installs",
         ),

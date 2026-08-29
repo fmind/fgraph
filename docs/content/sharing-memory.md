@@ -1,6 +1,6 @@
 ---
 title: Sharing and auditing memory
-weight: 4
+weight: 5
 ---
 
 fgraph has three sharing surfaces with deliberately different guarantees:

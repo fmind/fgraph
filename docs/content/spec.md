@@ -1,6 +1,7 @@
 ---
 title: fgraph v1 specification — SQLite format v2
-weight: 8
+linkTitle: fgraph v1 specification
+weight: 11
 ---
 
 This document is the normative contract for fgraph 1.x. It defines the durable SQLite format, logical semantics, portable protocols, public surfaces, and cross-language conformance requirements. Python, Go, and TypeScript are peer implementations. When another project file disagrees with this document, this document wins.
@@ -426,7 +427,7 @@ declare shape validate schema schema-export schema-check schema-apply tail
 apply snapshot restore undo excise backup doctor mcp version
 ```
 
-Global options are `--db`, `--json`, and `--query-budget`. `add`, declarations, shapes, `schema-apply`, and undo accept `--operation-id`/`--if-basis-tx`; irreversible `excise` requires both. Machine output is canonical JSON; protocol streams are NDJSON. Exit status is 0 success, 1 typed runtime error, and 2 usage error. Environment configuration is `FGRAPH_DB`, `FGRAPH_CLOCK`, `FGRAPH_QUERY_BUDGET`, and the test/reproducibility-only `FGRAPH_EVENT_SEED`.
+Global options are `--db`, `--json`, and `--query-budget`. The database path resolves in this order: explicit `--db`, then `FGRAPH_DB`, then the default `facts.fgraph`. An explicitly selected empty path, including a present-but-empty `FGRAPH_DB`, MUST fail with `FormatError`; unsetting the environment variable selects the default. When the path selection is implicit and the legacy default `fgraph.db` exists, a database-opening command MUST verify that `facts.fgraph` is already an initialized fgraph database before using it. If the new default is missing, empty, or unrelated, the command MUST fail with `FormatError` before mutation and tell the caller to select either path explicitly. Help, version, and invalid usage MUST be handled without inspecting either database path. `add`, declarations, shapes, `schema-apply`, and undo accept `--operation-id`/`--if-basis-tx`; irreversible `excise` requires both. Machine output is canonical JSON; protocol streams are NDJSON. Exit status is 0 success, 1 typed runtime error, and 2 usage error. Other environment configuration is `FGRAPH_CLOCK`, `FGRAPH_QUERY_BUDGET`, and the test/reproducibility-only `FGRAPH_EVENT_SEED`.
 
 `schema-export` accepts no positional argument and prints the normalized manifest. `schema-check <json|@file|->` compares inline JSON, a file, or standard input without mutation; drift is a successful result with `valid = false`. `schema-apply [--operation-id ID] [--if-basis-tx TX] <json|@file|->` atomically installs the full desired manifest.
 

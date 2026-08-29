@@ -4,7 +4,7 @@ Guidance for coding agents working on fgraph. Humans should start with `README.m
 
 ## Contract
 
-- `docs/content/docs/spec.md` is normative for the file format, semantics, query language, APIs, CLI, MCP, and release proof. When another file disagrees, the specification wins.
+- `docs/content/spec.md` is normative for the file format, semantics, query language, APIs, CLI, MCP, and release proof. When another file disagrees, the specification wins.
 - Python, Go, and TypeScript are equal native implementations. Normative behavior must land in all three and be covered by `conformance/`.
 - Keep the embedded core simple: one SQLite file, deterministic behavior, no core network calls, and no speculative features.
 
@@ -40,7 +40,7 @@ Run focused tests while iterating, then `mise run check` and `mise run test`. A 
 
 ## Repository layout
 
-- `docs/content/docs/spec.md` — normative fgraph v1 / SQLite format-v2 contract.
+- `docs/content/spec.md` — normative fgraph v1 / SQLite format-v2 contract.
 - `python/`, `go/`, `typescript/` — peer libraries and CLIs.
 - `conformance/` — shared cases, differential scenario, and immutable format-v2 fixture.
 - `examples/` — runnable acceptance examples for every runtime.

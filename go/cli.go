@@ -18,6 +18,11 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+const (
+	defaultDatabasePath       = "facts.fgraph"
+	legacyDefaultDatabasePath = "fgraph.db"
+)
+
 func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 	usageError := func(_ context.Context, _ *cli.Command, err error, _ bool) error {
 		return cli.Exit(err, 2)
@@ -31,7 +36,7 @@ func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 		// exit for typed errors, so urfave must not terminate the process here.
 		ExitErrHandler: func(context.Context, *cli.Command, error) {},
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "db", Value: "fgraph.db", Sources: cli.EnvVars("FGRAPH_DB"), Usage: "SQLite database path"},
+			&cli.StringFlag{Name: "db", Value: defaultDatabasePath, Sources: cli.EnvVars("FGRAPH_DB"), Usage: "SQLite database path"},
 			&cli.BoolFlag{Name: "json", Usage: "emit machine-readable JSON"},
 			&cli.IntFlag{Name: "query-budget", Value: DefaultQueryBudget, Sources: cli.EnvVars("FGRAPH_QUERY_BUDGET"), Usage: "maximum deterministic query work units"},
 		},
@@ -47,8 +52,8 @@ func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 		})},
 		{Name: "add", Usage: "assert JSON facts from an argument or stdin", ArgsUsage: "<json|@file|->", Flags: addFlags(), Action: databaseAction(false, addAction)},
 		{Name: "retract", Usage: "retract an entity, attribute, or exact value", ArgsUsage: "<entity> [attribute] [value-json]", Flags: mutationFlags(), Action: databaseAction(false, retractAction)},
-		{Name: "get", Usage: "pull one entity, optionally at a historical transaction", ArgsUsage: "<entity>", Flags: []cli.Flag{&cli.IntFlag{Name: "depth", Value: 1}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Action: databaseAction(true, getAction)},
-		{Name: "q", Usage: "run a canonical JSON query, optionally at a historical transaction", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Action: databaseAction(true, queryAction)},
+		{Name: "get", Usage: "pull one entity, optionally at a historical transaction", ArgsUsage: "<entity>", Flags: []cli.Flag{&cli.IntFlag{Name: "depth", Value: 1}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: databaseAction(true, getAction)},
+		{Name: "q", Usage: "run a canonical JSON query, optionally at a historical transaction", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: databaseAction(true, queryAction)},
 		{Name: "explain", Usage: "explain the actual bounded query plan without evaluating it", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}}, Action: databaseAction(true, explainAction)},
 		{Name: "datoms", Usage: "page current or historical datoms by an indexed order", ArgsUsage: "[eavt|avet|vaet]", Flags: []cli.Flag{
 			&cli.StringFlag{Name: "components", Value: "[]", Usage: "JSON index-prefix array"},
@@ -130,6 +135,14 @@ func databaseAction(readOnly bool, action dbAction) cli.ActionFunc {
 }
 
 func openCLI(cmd *cli.Command, readOnly bool) (*DB, error) {
+	if cmd.String("db") == "" {
+		return nil, fail(ErrFormat, "database path is empty; pass --db PATH or unset FGRAPH_DB to use %s", defaultDatabasePath)
+	}
+	if !cmd.IsSet("db") {
+		if err := guardImplicitDatabasePath(); err != nil {
+			return nil, err
+		}
+	}
 	options := []OpenOption{WithQueryBudget(cmd.Int("query-budget"))}
 	if readOnly {
 		options = append(options, WithReadOnly())
@@ -142,6 +155,46 @@ func openCLI(cmd *cli.Command, readOnly bool) (*DB, error) {
 		options = append(options, WithClock(func() int64 { return base }))
 	}
 	return Open(cmd.String("db"), options...)
+}
+
+func guardImplicitDatabasePath() error {
+	if _, err := os.Lstat(legacyDefaultDatabasePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return wrap(ErrFormat, err, "cannot inspect legacy database path %q; check directory permissions", legacyDefaultDatabasePath)
+	}
+
+	if _, err := os.Lstat(defaultDatabasePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fail(
+				ErrFormat,
+				"legacy default database %s exists while %s is absent; use --db %s to keep using it or explicitly pass --db %s to create a new database",
+				legacyDefaultDatabasePath,
+				defaultDatabasePath,
+				legacyDefaultDatabasePath,
+				defaultDatabasePath,
+			)
+		}
+		return wrap(ErrFormat, err, "cannot inspect default database path %q; check directory permissions", defaultDatabasePath)
+	}
+
+	db, err := Open(defaultDatabasePath, WithReadOnly())
+	if err != nil {
+		return wrap(
+			ErrFormat,
+			err,
+			"legacy default database %s exists and %s is not an initialized fgraph database; use --db %s to keep using the legacy file or explicitly pass --db %s to select the new default",
+			legacyDefaultDatabasePath,
+			defaultDatabasePath,
+			legacyDefaultDatabasePath,
+			defaultDatabasePath,
+		)
+	}
+	if err := db.Close(); err != nil {
+		return wrap(ErrFormat, err, "cannot finish validating default database %q", defaultDatabasePath)
+	}
+	return nil
 }
 
 func outputResult(cmd *cli.Command, value any, err error) error {
@@ -546,6 +599,16 @@ func cliHistoricalView(ctx context.Context, cmd *cli.Command, db *DB) (*DB, erro
 		return nil, fail(ErrType, "--at value %q is outside signed 64-bit integer range; use a transaction id or integer UTC microseconds", raw)
 	}
 	return db.At(ctx, selector)
+}
+
+func validateHistoricalSelectorSyntax(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+	if !cmd.IsSet("at") {
+		return ctx, nil
+	}
+	if _, err := strconv.ParseInt(cmd.String("at"), 10, 64); errors.Is(err, strconv.ErrSyntax) {
+		return ctx, usage("--at value %q is not an integer", cmd.String("at"))
+	}
+	return ctx, nil
 }
 
 func searchAction(ctx context.Context, cmd *cli.Command, db *DB) error {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from typing import Annotated, Any, TextIO
 
 import click
 import typer
+from typer._click.core import ParameterSource
 from typer._click.exceptions import Exit as TyperExit
 from typer._click.exceptions import UsageError as TyperUsageError
 
@@ -26,6 +28,9 @@ from fgraph.values import _canonical_json_document
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False, help="Temporal facts in one SQLite file.")
 
+DEFAULT_DATABASE_PATH = "facts.fgraph"
+LEGACY_DEFAULT_DATABASE_PATH = "fgraph.db"
+
 DbOption = Annotated[str | None, typer.Option("--db", envvar="FGRAPH_DB", help="SQLite database path.")]
 JsonOption = Annotated[bool, typer.Option("--json", help="Emit canonical machine-readable JSON.")]
 FilterOption = Annotated[list[str] | None, typer.Option("--filter", help="JSON [attribute,value], repeatable.")]
@@ -35,7 +40,8 @@ ArgsOption = Annotated[str | None, typer.Option("--args", help="Canonical JSON o
 
 @dataclass(frozen=True, slots=True)
 class _Options:
-    db: str = "fgraph.db"
+    db: str = DEFAULT_DATABASE_PATH
+    db_is_implicit: bool = True
     json_output: bool = False
     query_budget: int = DEFAULT_QUERY_BUDGET
 
@@ -46,7 +52,7 @@ _CURRENT_OPTIONS: ContextVar[_Options | None] = ContextVar("fgraph_cli_options",
 @app.callback()
 def _common(
     ctx: typer.Context,
-    db: Annotated[str, typer.Option("--db", envvar="FGRAPH_DB", help="SQLite database path.")] = "fgraph.db",
+    db: Annotated[str, typer.Option("--db", envvar="FGRAPH_DB", help="SQLite database path.")] = DEFAULT_DATABASE_PATH,
     json_output: JsonOption = False,
     query_budget: Annotated[
         int,
@@ -58,7 +64,14 @@ def _common(
     ] = DEFAULT_QUERY_BUDGET,
 ) -> None:
     """Configure options shared by every command."""
-    options = _Options(db=db, json_output=json_output, query_budget=query_budget)
+    db_source = ctx.get_parameter_source("db")
+    empty_environment = db_source is ParameterSource.DEFAULT and os.environ.get("FGRAPH_DB") == ""
+    options = _Options(
+        db="" if empty_environment else db,
+        db_is_implicit=db_source is ParameterSource.DEFAULT and not empty_environment,
+        json_output=json_output,
+        query_budget=query_budget,
+    )
     ctx.obj = options
     _CURRENT_OPTIONS.set(options)
 
@@ -68,11 +81,55 @@ def _options() -> _Options:
 
 
 def _open(path: str | None, *, read_only: bool = False) -> Db:
+    options = _options()
+    selected_path = options.db if path is None else path
+    if selected_path == "":
+        raise fgraph.FormatError(
+            f"database path is empty; pass --db PATH or unset FGRAPH_DB to use {DEFAULT_DATABASE_PATH}"
+        )
+    if path is None and options.db_is_implicit:
+        _guard_implicit_database_path()
     return fgraph.connect(
-        path or _options().db,
+        selected_path,
         read_only=read_only,
-        query_budget=_options().query_budget,
+        query_budget=options.query_budget,
     )
+
+
+def _path_entry_exists(path: Path, *, description: str) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise fgraph.FormatError(
+            f"cannot inspect {description} database path {path!s}; check directory permissions"
+        ) from exc
+    return True
+
+
+def _guard_implicit_database_path() -> None:
+    legacy = Path(LEGACY_DEFAULT_DATABASE_PATH)
+    if not _path_entry_exists(legacy, description="legacy"):
+        return
+
+    current = Path(DEFAULT_DATABASE_PATH)
+    if not _path_entry_exists(current, description="default"):
+        raise fgraph.FormatError(
+            f"legacy default database {legacy!s} exists while {current!s} is absent; "
+            f"use --db {legacy!s} to keep using it or explicitly pass --db {current!s} "
+            "to create a new database"
+        )
+
+    try:
+        with fgraph.connect(current, read_only=True):
+            pass
+    except FGraphError as exc:
+        raise fgraph.FormatError(
+            f"legacy default database {legacy!s} exists and {current!s} is not an initialized "
+            f"fgraph database; use --db {legacy!s} to keep using the legacy file or explicitly "
+            f"pass --db {current!s} to select the new default"
+        ) from exc
 
 
 def run_mcp(graph: Any, *, read_only: bool, embed_cmd: str | None) -> None:

@@ -101,6 +101,117 @@ func runCLIForTest(t *testing.T, stdin string, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
+func unsetEnvironmentForTest(t *testing.T, name string) {
+	t.Helper()
+	previous, existed := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		if existed {
+			err = os.Setenv(name, previous)
+		} else {
+			err = os.Unsetenv(name)
+		}
+		if err != nil {
+			t.Errorf("restore %s: %v", name, err)
+		}
+	})
+}
+
+func TestCLIDefaultDatabasePath(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+	unsetEnvironmentForTest(t, "FGRAPH_DB")
+
+	if _, err := runCLIForTest(t, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat("facts.fgraph"); err != nil {
+		t.Fatalf("default database was not created at facts.fgraph: %v", err)
+	}
+	if _, err := os.Stat("fgraph.db"); !os.IsNotExist(err) {
+		t.Fatalf("legacy default database fgraph.db exists or cannot be inspected: %v", err)
+	}
+
+	environmentPath := filepath.Join(directory, "environment.fgraph")
+	t.Setenv("FGRAPH_DB", environmentPath)
+	if _, err := runCLIForTest(t, "", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(environmentPath); err != nil {
+		t.Fatalf("FGRAPH_DB database was not created: %v", err)
+	}
+
+	explicitPath := filepath.Join(directory, "explicit.fgraph")
+	if _, err := runCLIForTest(t, "", "init", "--db", explicitPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(explicitPath); err != nil {
+		t.Fatalf("explicit --db database was not created: %v", err)
+	}
+}
+
+func TestCLILegacyImplicitDefaultRequiresExplicitChoice(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+	unsetEnvironmentForTest(t, "FGRAPH_DB")
+
+	if _, err := runCLIForTest(t, "", "init", "--db", "fgraph.db"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLIForTest(t, "", "init"); !errors.Is(err, ErrFormat) {
+		t.Fatalf("implicit legacy default error = %v, want FormatError", err)
+	} else if !strings.Contains(err.Error(), "--db fgraph.db") || !strings.Contains(err.Error(), "--db facts.fgraph") {
+		t.Fatalf("implicit legacy default error is not actionable: %v", err)
+	}
+	if _, err := os.Lstat("facts.fgraph"); !os.IsNotExist(err) {
+		t.Fatalf("implicit invocation created facts.fgraph or could not inspect it: %v", err)
+	}
+	t.Setenv("FGRAPH_DB", "")
+	if _, err := runCLIForTest(t, "", "init"); !errors.Is(err, ErrFormat) || !strings.Contains(err.Error(), "database path is empty") {
+		t.Fatalf("empty FGRAPH_DB error = %v, want actionable FormatError", err)
+	}
+	if err := os.Unsetenv("FGRAPH_DB"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLIForTest(t, "", "init", "--definitely-invalid"); err == nil {
+		t.Fatal("invalid syntax unexpectedly reached the migration guard")
+	} else {
+		var exit cli.ExitCoder
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Fatalf("invalid syntax error = %v, want usage exit 2", err)
+		}
+	}
+	if err := os.WriteFile("facts.fgraph", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLIForTest(t, "", "init"); !errors.Is(err, ErrFormat) || !strings.Contains(err.Error(), "not an initialized fgraph database") {
+		t.Fatalf("unclaimed new default error = %v, want actionable FormatError", err)
+	}
+	if info, err := os.Stat("facts.fgraph"); err != nil || info.Size() != 0 {
+		t.Fatalf("implicit invocation modified unclaimed facts.fgraph: info=%v err=%v", info, err)
+	}
+	if err := os.Remove("facts.fgraph"); err != nil {
+		t.Fatal(err)
+	}
+	environmentPath := filepath.Join(directory, "environment.fgraph")
+	t.Setenv("FGRAPH_DB", environmentPath)
+	if _, err := runCLIForTest(t, "", "init"); err != nil {
+		t.Fatalf("explicit FGRAPH_DB selection failed: %v", err)
+	}
+	if _, err := runCLIForTest(t, "", "init", "--db", "facts.fgraph"); err != nil {
+		t.Fatalf("explicit new default path failed: %v", err)
+	}
+	if err := os.Unsetenv("FGRAPH_DB"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLIForTest(t, "", "init"); err != nil {
+		t.Fatalf("implicit new default selection failed once both files existed: %v", err)
+	}
+}
+
 func TestCLIBatchedAddIsBoundedAndResumable(t *testing.T) {
 	t.Setenv("FGRAPH_CLOCK", "1767225600000000")
 	path := filepath.Join(t.TempDir(), "bulk.db")

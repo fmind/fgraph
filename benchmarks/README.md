@@ -3,7 +3,7 @@
 These artifacts are evidence for fgraph's documented v1 operating envelope, not a service-level objective or a comparison against unrelated databases.
 
 - [`latest.ndjson`](latest.ndjson) is the machine-readable source. Its first record identifies the fgraph version, Git revision and tree state, a digest of the measured source and locked dependencies, runtime versions, and workload.
-- [`ingest-throughput.svg`](ingest-throughput.svg) and [`read-latency.svg`](read-latency.svg) are generated from that NDJSON. `benchmark:verify` rejects charts that differ from the raw observations.
+- [`ingest-throughput.svg`](ingest-throughput.svg) plots throughput across quantitative corpus sizes. [`read-latency.svg`](read-latency.svg) uses grouped bars for categorical read operations. Both are generated from the NDJSON, and `benchmark:verify` rejects charts that differ from the raw observations.
 - The root [README](../README.md#benchmarks) explains the workload and summarizes the largest measured size.
 
 Run the complete workload from the repository root:
