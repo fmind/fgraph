@@ -25,6 +25,22 @@ run_cli() { # $1 = runtime, remaining arguments = CLI arguments
   esac
 }
 
+assert_usage_error() { # $1 = runtime, $2 = label, remaining arguments = CLI arguments
+  runtime=$1
+  label=$2
+  shift 2
+  if run_cli "${runtime}" "$@" >"${label}.stdout" 2>"${label}.stderr"; then
+    echo "crosscheck: ${runtime} accepted invalid ${label} usage" >&2
+    exit 1
+  else
+    usage_status=$?
+  fi
+  if test "${usage_status}" -ne 2; then
+    echo "crosscheck: ${runtime} ${label} exited ${usage_status}, expected usage exit 2" >&2
+    exit 1
+  fi
+}
+
 run_scenario() { # $1 = runtime, $2 = database path
   runtime=$1
   database=$2
@@ -87,16 +103,27 @@ check_default_path_migration() { # $1 = runtime
     run_cli "${runtime}" init --db fgraph.db --json >/dev/null
     run_cli "${runtime}" version >/dev/null
     run_cli "${runtime}" --help >/dev/null 2>&1
-    if run_cli "${runtime}" init --json >implicit.stdout 2>implicit.stderr; then
-      echo "crosscheck: ${runtime} silently bypassed legacy fgraph.db" >&2
-      exit 1
-    fi
-    grep -F -- 'FormatError:' implicit.stderr >/dev/null
-    grep -F -- '--db fgraph.db' implicit.stderr >/dev/null
-    grep -F -- '--db facts.fgraph' implicit.stderr >/dev/null
+    run_cli "${runtime}" init --json >implicit.stdout 2>implicit.stderr
     test ! -e facts.fgraph
 
-    if (export FGRAPH_DB=''; run_cli "${runtime}" init --json) >empty-env.stdout 2>empty-env.stderr; then
+    mkdir precedence
+    (
+      cd precedence
+      FGRAPH_DB=environment.fgraph run_cli "${runtime}" --db explicit.fgraph init --json >/dev/null
+      test -e explicit.fgraph
+      test ! -e environment.fgraph
+      if FGRAPH_DB=environment.fgraph run_cli "${runtime}" --db '' init --json >empty-explicit.stdout 2>empty-explicit.stderr; then
+        echo "crosscheck: ${runtime} accepted an explicitly empty --db" >&2
+        exit 1
+      else
+        empty_explicit_status=$?
+      fi
+      test "${empty_explicit_status}" -eq 1
+      grep -F -- 'database path is empty' empty-explicit.stderr >/dev/null
+      test ! -e environment.fgraph
+    )
+
+    if FGRAPH_DB='' run_cli "${runtime}" init --json >empty-env.stdout 2>empty-env.stderr; then
       echo "crosscheck: ${runtime} accepted an empty FGRAPH_DB" >&2
       exit 1
     else
@@ -124,6 +151,11 @@ check_default_path_migration() { # $1 = runtime
     test "${invalid_at_status}" -eq 2
 
     touch facts.fgraph
+    assert_usage_error "${runtime}" init-extra init extra
+    assert_usage_error "${runtime}" get-missing get
+    assert_usage_error "${runtime}" mcp-extra mcp extra
+    assert_usage_error "${runtime}" version-extra version extra
+    test ! -s facts.fgraph
     if run_cli "${runtime}" init --json >unclaimed.stdout 2>unclaimed.stderr; then
       echo "crosscheck: ${runtime} initialized an unclaimed facts.fgraph beside the legacy database" >&2
       exit 1

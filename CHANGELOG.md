@@ -12,8 +12,13 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ### Changed
 
-- Default the Python, Go, and TypeScript CLIs to `facts.fgraph` when neither `--db` nor `FGRAPH_DB` is set, with consistent empty-path validation and a fail-closed migration guard that verifies the new default before bypassing an existing `fgraph.db`.
+- Default fresh Python, Go, and TypeScript CLI directories to `facts.fgraph`, while legacy-only directories continue to open `fgraph.db` until an initialized new default exists.
 - Replace the misleading connected-line read-latency figure with grouped operation bars while retaining the exact raw observations.
+
+### Fixed
+
+- Preserve explicit global `--db` precedence in the Python CLI, reject explicit empty paths consistently, and validate Go positional arity before any database access.
+- Place read-latency value labels beside their median markers instead of at the observed maximum whiskers.
 
 ## [1.1.0] - 2026-08-28
 

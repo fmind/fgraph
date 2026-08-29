@@ -42,24 +42,24 @@ func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 		},
 	}
 	command.Commands = []*cli.Command{
-		{Name: "init", Usage: "initialize a database and show its info", Action: databaseAction(false, func(ctx context.Context, cmd *cli.Command, db *DB) error {
+		{Name: "init", Usage: "initialize a database and show its info", Action: withArgumentCount(0, 0, "init accepts no arguments", databaseAction(false, func(ctx context.Context, cmd *cli.Command, db *DB) error {
 			stats, err := db.Stats(ctx)
 			return outputResult(cmd, stats, err)
-		})},
-		{Name: "info", Usage: "show database statistics", Action: databaseAction(true, func(ctx context.Context, cmd *cli.Command, db *DB) error {
+		}))},
+		{Name: "info", Usage: "show database statistics", Action: withArgumentCount(0, 0, "info accepts no arguments", databaseAction(true, func(ctx context.Context, cmd *cli.Command, db *DB) error {
 			stats, err := db.Stats(ctx)
 			return outputResult(cmd, stats, err)
-		})},
-		{Name: "add", Usage: "assert JSON facts from an argument or stdin", ArgsUsage: "<json|@file|->", Flags: addFlags(), Action: databaseAction(false, addAction)},
-		{Name: "retract", Usage: "retract an entity, attribute, or exact value", ArgsUsage: "<entity> [attribute] [value-json]", Flags: mutationFlags(), Action: databaseAction(false, retractAction)},
-		{Name: "get", Usage: "pull one entity, optionally at a historical transaction", ArgsUsage: "<entity>", Flags: []cli.Flag{&cli.IntFlag{Name: "depth", Value: 1}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: databaseAction(true, getAction)},
-		{Name: "q", Usage: "run a canonical JSON query, optionally at a historical transaction", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: databaseAction(true, queryAction)},
-		{Name: "explain", Usage: "explain the actual bounded query plan without evaluating it", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}}, Action: databaseAction(true, explainAction)},
+		}))},
+		{Name: "add", Usage: "assert JSON facts from an argument or stdin", ArgsUsage: "<json|@file|->", Flags: addFlags(), Action: withArgumentCount(1, 1, "add needs exactly one JSON argument, @file, or -", databaseAction(false, addAction))},
+		{Name: "retract", Usage: "retract an entity, attribute, or exact value", ArgsUsage: "<entity> [attribute] [value-json]", Flags: mutationFlags(), Action: withArgumentCount(1, 3, "retract needs entity, optional attribute, and optional value", databaseAction(false, retractAction))},
+		{Name: "get", Usage: "pull one entity, optionally at a historical transaction", ArgsUsage: "<entity>", Flags: []cli.Flag{&cli.IntFlag{Name: "depth", Value: 1}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: withArgumentCount(1, 1, "get needs exactly one entity", databaseAction(true, getAction))},
+		{Name: "q", Usage: "run a canonical JSON query, optionally at a historical transaction", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}, &cli.StringFlag{Name: "at", Usage: "transaction id or integer UTC microseconds"}}, Before: validateHistoricalSelectorSyntax, Action: withArgumentCount(1, 1, "q needs exactly one query JSON argument or @file", databaseAction(true, queryAction))},
+		{Name: "explain", Usage: "explain the actual bounded query plan without evaluating it", ArgsUsage: "<json|@file>", Flags: []cli.Flag{&cli.StringFlag{Name: "args", Usage: "JSON input bindings"}}, Action: withArgumentCount(1, 1, "explain needs exactly one query JSON argument or @file", databaseAction(true, explainAction))},
 		{Name: "datoms", Usage: "page current or historical datoms by an indexed order", ArgsUsage: "[eavt|avet|vaet]", Flags: []cli.Flag{
 			&cli.StringFlag{Name: "components", Value: "[]", Usage: "JSON index-prefix array"},
 			&cli.StringFlag{Name: "source", Value: "current", Usage: "current or history"},
 			&cli.IntFlag{Name: "limit", Value: 100}, &cli.StringFlag{Name: "cursor"},
-		}, Action: databaseAction(true, datomsAction)},
+		}, Action: withArgumentCount(0, 1, "datoms accepts at most one index name", databaseAction(true, datomsAction))},
 		{Name: "search", Usage: "keyword or vector search", ArgsUsage: "[text]", DisableSliceFlagSeparator: true, Flags: []cli.Flag{
 			&cli.StringFlag{Name: "text"}, &cli.StringFlag{Name: "vector", Usage: "JSON float array"},
 			&cli.IntFlag{Name: "k", Value: 10}, &cli.IntFlag{Name: "expand"}, &cli.StringFlag{Name: "vector-attribute"},
@@ -67,10 +67,10 @@ func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 			&cli.StringSliceFlag{Name: "filter", Usage: "JSON [attribute,value], repeatable"},
 			&cli.StringFlag{Name: "embed-cmd", Usage: "external embedding executable"},
 		}, Action: databaseAction(true, searchAction)},
-		{Name: "history", Usage: "show an entity fact timeline", ArgsUsage: "<entity> [attribute]", Action: databaseAction(true, historyAction)},
-		{Name: "why", Usage: "explain current facts with provenance", ArgsUsage: "<entity> [attribute]", Action: databaseAction(true, whyAction)},
-		{Name: "tx", Usage: "show one durable event receipt", ArgsUsage: "<transaction-id>", Action: databaseAction(true, txAction)},
-		{Name: "diff", Usage: "show facts changed between two transactions", ArgsUsage: "<from> <to>", Action: databaseAction(true, diffAction)},
+		{Name: "history", Usage: "show an entity fact timeline", ArgsUsage: "<entity> [attribute]", Action: withArgumentCount(1, 2, "history needs entity and optional attribute", databaseAction(true, historyAction))},
+		{Name: "why", Usage: "explain current facts with provenance", ArgsUsage: "<entity> [attribute]", Action: withArgumentCount(1, 2, "why needs entity and optional attribute", databaseAction(true, whyAction))},
+		{Name: "tx", Usage: "show one durable event receipt", ArgsUsage: "<transaction-id>", Action: withArgumentCount(1, 1, "tx needs exactly one transaction id", databaseAction(true, txAction))},
+		{Name: "diff", Usage: "show facts changed between two transactions", ArgsUsage: "<from> <to>", Action: withArgumentCount(2, 2, "diff needs start and end transaction ids", databaseAction(true, diffAction))},
 		{Name: "declare", Usage: "patch an attribute declaration", ArgsUsage: "<attribute>", Flags: []cli.Flag{
 			&cli.StringFlag{Name: "type"}, &cli.BoolFlag{Name: "ref"}, &cli.BoolFlag{Name: "many"},
 			&cli.BoolFlag{Name: "one", Usage: "disable cardinality many"},
@@ -78,38 +78,38 @@ func NewCLI(reader io.Reader, writer, errWriter io.Writer) *cli.Command {
 			&cli.BoolFlag{Name: "nohistory"}, &cli.BoolFlag{Name: "history", Usage: "retain retracted history"},
 			&cli.Int64Flag{Name: "dims"}, &cli.StringFlag{Name: "doc"}, &cli.StringFlag{Name: "vector-model"},
 			&cli.StringFlag{Name: "operation-id"}, &cli.Int64Flag{Name: "if-basis-tx"},
-		}, Action: databaseAction(false, declareAction)},
+		}, Action: withArgumentCount(1, 1, "declare needs exactly one attribute", databaseAction(false, declareAction))},
 		{Name: "shape", Usage: "create or replace a required/allowed attribute shape", ArgsUsage: "<name>", DisableSliceFlagSeparator: true, Flags: []cli.Flag{
 			&cli.StringSliceFlag{Name: "required", Usage: "required attribute, repeatable"},
 			&cli.StringSliceFlag{Name: "allowed", Usage: "allowed attribute, repeatable"},
 			&cli.BoolFlag{Name: "closed"}, &cli.BoolFlag{Name: "open"},
 			&cli.StringFlag{Name: "operation-id"}, &cli.Int64Flag{Name: "if-basis-tx"},
-		}, Action: databaseAction(false, shapeAction)},
-		{Name: "validate", Usage: "validate one entity against its assigned shapes", ArgsUsage: "<entity>", Action: databaseAction(true, validateAction)},
+		}, Action: withArgumentCount(1, 1, "shape needs exactly one shape name", databaseAction(false, shapeAction))},
+		{Name: "validate", Usage: "validate one entity against its assigned shapes", ArgsUsage: "<entity>", Action: withArgumentCount(1, 1, "validate needs exactly one entity", databaseAction(true, validateAction))},
 		{Name: "schema", Usage: "list effective application attribute schemas", ArgsUsage: "[prefix]", Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "system", Usage: "include fgraph system attributes"},
-		}, Action: databaseAction(true, schemaAction)},
-		{Name: "schema-export", Usage: "export portable schema/1 declarations and shapes", Action: databaseAction(true, schemaExportAction)},
-		{Name: "schema-check", Usage: "compare a schema/1 manifest with the database", ArgsUsage: "<json|@file|->", Action: databaseAction(true, schemaCheckAction)},
-		{Name: "schema-apply", Usage: "atomically apply a schema/1 manifest", ArgsUsage: "<json|@file|->", Flags: mutationFlags(), Action: databaseAction(false, schemaApplyAction)},
-		{Name: "apply", Usage: "atomically apply portable event/1 NDJSON", ArgsUsage: "[file|-]", Action: databaseAction(false, applyAction)},
-		{Name: "snapshot", Usage: "write a portable retained-state snapshot to stdout", Action: databaseAction(true, snapshotAction)},
-		{Name: "restore", Usage: "atomically restore snapshot/1 NDJSON into a pristine database", ArgsUsage: "[file|-]", Action: databaseAction(false, restoreAction)},
-		{Name: "undo", Usage: "create a compensating transaction", ArgsUsage: "<tx>", Flags: mutationFlags(), Action: databaseAction(false, undoAction)},
+		}, Action: withArgumentCount(0, 1, "schema accepts at most one attribute prefix", databaseAction(true, schemaAction))},
+		{Name: "schema-export", Usage: "export portable schema/1 declarations and shapes", Action: withArgumentCount(0, 0, "schema-export accepts no arguments", databaseAction(true, schemaExportAction))},
+		{Name: "schema-check", Usage: "compare a schema/1 manifest with the database", ArgsUsage: "<json|@file|->", Action: withArgumentCount(1, 1, "schema-check needs one JSON argument, @file, or -", databaseAction(true, schemaCheckAction))},
+		{Name: "schema-apply", Usage: "atomically apply a schema/1 manifest", ArgsUsage: "<json|@file|->", Flags: mutationFlags(), Action: withArgumentCount(1, 1, "schema-apply needs one JSON argument, @file, or -", databaseAction(false, schemaApplyAction))},
+		{Name: "apply", Usage: "atomically apply portable event/1 NDJSON", ArgsUsage: "[file|-]", Action: withArgumentCount(0, 1, "apply accepts at most one input file", databaseAction(false, applyAction))},
+		{Name: "snapshot", Usage: "write a portable retained-state snapshot to stdout", Action: withArgumentCount(0, 0, "snapshot writes to stdout and accepts no arguments", databaseAction(true, snapshotAction))},
+		{Name: "restore", Usage: "atomically restore snapshot/1 NDJSON into a pristine database", ArgsUsage: "[file|-]", Action: withArgumentCount(0, 1, "restore accepts at most one input file", databaseAction(false, restoreAction))},
+		{Name: "undo", Usage: "create a compensating transaction", ArgsUsage: "<tx>", Flags: mutationFlags(), Action: withArgumentCount(1, 1, "undo needs exactly one transaction id", databaseAction(false, undoAction))},
 		{Name: "excise", Usage: "irreversibly erase one application entity with an idempotent CAS receipt", ArgsUsage: "<entity>", Flags: []cli.Flag{
 			&cli.StringFlag{Name: "operation-id", Usage: "unique idempotency key (required)"},
 			&cli.Int64Flag{Name: "if-basis-tx", Usage: "expected current basis transaction (required)"},
-		}, Action: databaseAction(false, exciseAction)},
-		{Name: "tail", Usage: "stream portable event/1 records", Flags: []cli.Flag{&cli.Int64Flag{Name: "since", Value: GenesisTx}, &cli.BoolFlag{Name: "follow"}}, Action: databaseAction(true, tailAction)},
-		{Name: "backup", Usage: "create a safe hot backup", ArgsUsage: "<destination>", Action: databaseAction(false, backupAction)},
+		}, Action: withArgumentCount(1, 1, "excise needs exactly one entity", databaseAction(false, exciseAction))},
+		{Name: "tail", Usage: "stream portable event/1 records", Flags: []cli.Flag{&cli.Int64Flag{Name: "since", Value: GenesisTx}, &cli.BoolFlag{Name: "follow"}}, Action: withArgumentCount(0, 0, "tail accepts only --since and --follow", databaseAction(true, tailAction))},
+		{Name: "backup", Usage: "create a safe hot backup", ArgsUsage: "<destination>", Action: withArgumentCount(1, 1, "backup needs exactly one destination", databaseAction(false, backupAction))},
 		{Name: "doctor", Usage: "check database invariants without mutation", Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "repair", Usage: "transactionally rebuild FTS and remove orphaned blobs"},
-		}, Action: doctorCLIAction},
-		{Name: "mcp", Usage: "serve read-only MCP over stdio", Flags: []cli.Flag{&cli.BoolFlag{Name: "write", Usage: "opt in to remember, forget, and undo tools"}, &cli.BoolFlag{Name: "read-only", Usage: "deprecated; read-only is the default"}, &cli.StringFlag{Name: "embed-cmd"}}, Action: mcpAction},
-		{Name: "version", Usage: "print the fgraph version", Action: func(_ context.Context, cmd *cli.Command) error {
+		}, Action: withArgumentCount(0, 0, "doctor accepts no arguments", doctorCLIAction)},
+		{Name: "mcp", Usage: "serve read-only MCP over stdio", Flags: []cli.Flag{&cli.BoolFlag{Name: "write", Usage: "opt in to remember, forget, and undo tools"}, &cli.BoolFlag{Name: "read-only", Usage: "deprecated; read-only is the default"}, &cli.StringFlag{Name: "embed-cmd"}}, Action: withArgumentCount(0, 0, "mcp accepts no arguments", mcpAction)},
+		{Name: "version", Usage: "print the fgraph version", Action: withArgumentCount(0, 0, "version accepts no arguments", func(_ context.Context, cmd *cli.Command) error {
 			_, err := fmt.Fprintln(cmd.Root().Writer, Version)
 			return err
-		}},
+		})},
 	}
 	for _, subcommand := range command.Commands {
 		subcommand.OnUsageError = usageError
@@ -123,6 +123,16 @@ func RunCLI(ctx context.Context, args []string, reader io.Reader, writer, errWri
 
 type dbAction func(context.Context, *cli.Command, *DB) error
 
+func withArgumentCount(minimum, maximum int, message string, action cli.ActionFunc) cli.ActionFunc {
+	return func(ctx context.Context, cmd *cli.Command) error {
+		count := cmd.Args().Len()
+		if count < minimum || count > maximum {
+			return cli.Exit(message, 2)
+		}
+		return action(ctx, cmd)
+	}
+}
+
 func databaseAction(readOnly bool, action dbAction) cli.ActionFunc {
 	return func(ctx context.Context, cmd *cli.Command) (result error) {
 		db, err := openCLI(cmd, readOnly)
@@ -135,11 +145,14 @@ func databaseAction(readOnly bool, action dbAction) cli.ActionFunc {
 }
 
 func openCLI(cmd *cli.Command, readOnly bool) (*DB, error) {
-	if cmd.String("db") == "" {
+	selectedPath := cmd.String("db")
+	if selectedPath == "" {
 		return nil, fail(ErrFormat, "database path is empty; pass --db PATH or unset FGRAPH_DB to use %s", defaultDatabasePath)
 	}
 	if !cmd.IsSet("db") {
-		if err := guardImplicitDatabasePath(); err != nil {
+		var err error
+		selectedPath, err = resolveImplicitDatabasePath()
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -154,34 +167,24 @@ func openCLI(cmd *cli.Command, readOnly bool) (*DB, error) {
 		}
 		options = append(options, WithClock(func() int64 { return base }))
 	}
-	return Open(cmd.String("db"), options...)
+	return Open(selectedPath, options...)
 }
 
-func guardImplicitDatabasePath() error {
-	if _, err := os.Lstat(legacyDefaultDatabasePath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return wrap(ErrFormat, err, "cannot inspect legacy database path %q; check directory permissions", legacyDefaultDatabasePath)
+func resolveImplicitDatabasePath() (string, error) {
+	legacyExists, err := pathEntryExists(legacyDefaultDatabasePath, "legacy")
+	if err != nil || !legacyExists {
+		return defaultDatabasePath, err
 	}
-
-	if _, err := os.Lstat(defaultDatabasePath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fail(
-				ErrFormat,
-				"legacy default database %s exists while %s is absent; use --db %s to keep using it or explicitly pass --db %s to create a new database",
-				legacyDefaultDatabasePath,
-				defaultDatabasePath,
-				legacyDefaultDatabasePath,
-				defaultDatabasePath,
-			)
-		}
-		return wrap(ErrFormat, err, "cannot inspect default database path %q; check directory permissions", defaultDatabasePath)
+	currentExists, err := pathEntryExists(defaultDatabasePath, "default")
+	if err != nil {
+		return "", err
 	}
-
+	if !currentExists {
+		return legacyDefaultDatabasePath, nil
+	}
 	db, err := Open(defaultDatabasePath, WithReadOnly())
 	if err != nil {
-		return wrap(
+		return "", wrap(
 			ErrFormat,
 			err,
 			"legacy default database %s exists and %s is not an initialized fgraph database; use --db %s to keep using the legacy file or explicitly pass --db %s to select the new default",
@@ -192,9 +195,19 @@ func guardImplicitDatabasePath() error {
 		)
 	}
 	if err := db.Close(); err != nil {
-		return wrap(ErrFormat, err, "cannot finish validating default database %q", defaultDatabasePath)
+		return "", wrap(ErrFormat, err, "cannot finish validating default database %q", defaultDatabasePath)
 	}
-	return nil
+	return defaultDatabasePath, nil
+}
+
+func pathEntryExists(path, description string) (bool, error) {
+	if _, err := os.Lstat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, wrap(ErrFormat, err, "cannot inspect %s database path %q; check directory permissions", description, path)
+	}
+	return true, nil
 }
 
 func outputResult(cmd *cli.Command, value any, err error) error {
@@ -256,9 +269,6 @@ func mutationOptions(cmd *cli.Command) []TxOption {
 }
 
 func addAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("add needs exactly one JSON argument, @file, or -")
-	}
 	batchSize := cmd.Int("batch-size")
 	if batchSize < 0 || batchSize > 10_000 || cmd.IsSet("batch-size") && batchSize == 0 {
 		return usage("--batch-size must be between 1 and 10000")
@@ -474,9 +484,6 @@ func decodeAddPayloads(data []byte) ([]any, error) {
 }
 
 func retractAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() < 1 || cmd.Args().Len() > 3 {
-		return usage("retract needs entity, optional attribute, and optional value")
-	}
 	ref := parseRef(cmd.Args().Get(0))
 	args := []any{}
 	if cmd.Args().Len() >= 2 {
@@ -491,9 +498,6 @@ func retractAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func getAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("get needs exactly one entity")
-	}
 	target, err := cliHistoricalView(ctx, cmd, db)
 	if err != nil {
 		return err
@@ -503,9 +507,6 @@ func getAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func queryAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("q needs exactly one query JSON argument or @file")
-	}
 	data, err := readArgument(cmd, cmd.Args().First())
 	if err != nil {
 		return err
@@ -535,9 +536,6 @@ func queryAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func explainAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("explain needs exactly one query JSON argument or @file")
-	}
 	value, args, err := cliQueryInput(cmd)
 	if err != nil {
 		return err
@@ -571,9 +569,6 @@ func cliQueryInput(cmd *cli.Command) (any, map[string]any, error) {
 }
 
 func datomsAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() > 1 {
-		return usage("datoms accepts at most one index name")
-	}
 	decoded, err := DecodeJSON(strings.NewReader(cmd.String("components")))
 	if err != nil {
 		return err
@@ -652,9 +647,6 @@ func searchAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func historyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() < 1 || cmd.Args().Len() > 2 {
-		return usage("history needs entity and optional attribute")
-	}
 	var (
 		facts []Fact
 		err   error
@@ -668,9 +660,6 @@ func historyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func whyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() < 1 || cmd.Args().Len() > 2 {
-		return usage("why needs entity and optional attribute")
-	}
 	var (
 		facts []Fact
 		err   error
@@ -684,9 +673,6 @@ func whyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func diffAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 2 {
-		return usage("diff needs start and end transaction ids")
-	}
 	from, err := strconv.ParseInt(cmd.Args().Get(0), 10, 64)
 	if err != nil {
 		return usage("invalid start transaction %q", cmd.Args().Get(0))
@@ -700,9 +686,6 @@ func diffAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func declareAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("declare needs exactly one attribute")
-	}
 	options := []DeclareOption{}
 	if cmd.Bool("ref") {
 		options = append(options, Ref())
@@ -752,9 +735,6 @@ func declareAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func shapeAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("shape needs exactly one shape name")
-	}
 	if cmd.Bool("closed") && cmd.Bool("open") {
 		return usage("shape --closed and --open are mutually exclusive")
 	}
@@ -765,33 +745,21 @@ func shapeAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func validateAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("validate needs exactly one entity")
-	}
 	report, err := db.Validate(ctx, parseRef(cmd.Args().First()))
 	return outputResult(cmd, report, err)
 }
 
 func schemaAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() > 1 {
-		return usage("schema accepts at most one attribute prefix")
-	}
 	snapshot, err := db.Schema(ctx, cmd.Args().First(), cmd.Bool("system"))
 	return outputResult(cmd, snapshot, err)
 }
 
 func schemaExportAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 0 {
-		return usage("schema-export accepts no arguments")
-	}
 	manifest, err := db.SchemaManifest(ctx)
 	return outputResult(cmd, manifest, err)
 }
 
 func decodeSchemaManifest(cmd *cli.Command) (SchemaManifest, error) {
-	if cmd.Args().Len() != 1 {
-		return SchemaManifest{}, usage("schema manifest command needs one JSON argument, @file, or -")
-	}
 	raw, err := readArgument(cmd, cmd.Args().First())
 	if err != nil {
 		return SchemaManifest{}, err
@@ -900,9 +868,6 @@ func schemaApplyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func portableInput(cmd *cli.Command, operation string) (io.Reader, func() error, error) {
-	if cmd.Args().Len() > 1 {
-		return nil, nil, usage("%s accepts at most one input file", operation)
-	}
 	if !cmd.Args().Present() || cmd.Args().First() == "-" {
 		return cmd.Root().Reader, func() error { return nil }, nil
 	}
@@ -924,9 +889,6 @@ func applyAction(ctx context.Context, cmd *cli.Command, db *DB) (result error) {
 }
 
 func snapshotAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 0 {
-		return usage("snapshot writes to stdout and accepts no arguments")
-	}
 	return db.Snapshot(ctx, cmd.Root().Writer)
 }
 
@@ -944,9 +906,6 @@ func restoreAction(ctx context.Context, cmd *cli.Command, db *DB) (result error)
 }
 
 func undoAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("undo needs exactly one transaction id")
-	}
 	tx, err := strconv.ParseInt(cmd.Args().First(), 10, 64)
 	if err != nil {
 		return usage("invalid transaction id %q", cmd.Args().First())
@@ -956,9 +915,6 @@ func undoAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func exciseAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("excise needs exactly one entity")
-	}
 	if !cmd.IsSet("operation-id") || !cmd.IsSet("if-basis-tx") {
 		return usage("excise requires --operation-id and --if-basis-tx")
 	}
@@ -972,9 +928,6 @@ func exciseAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func txAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("tx needs exactly one transaction id")
-	}
 	tx, err := strconv.ParseInt(cmd.Args().First(), 10, 64)
 	if err != nil || tx < GenesisTx {
 		return usage("invalid transaction id %q", cmd.Args().First())
@@ -1006,9 +959,6 @@ func tailAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func backupAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Args().Len() != 1 {
-		return usage("backup needs exactly one destination")
-	}
 	if err := db.Backup(ctx, cmd.Args().First()); err != nil {
 		return err
 	}
@@ -1021,9 +971,6 @@ func doctorAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func doctorCLIAction(ctx context.Context, cmd *cli.Command) error {
-	if cmd.Args().Len() != 0 {
-		return usage("doctor accepts no arguments")
-	}
 	// The normal diagnostic path opens SQLite read-only; only an explicit
 	// repair request is allowed to acquire a writer connection.
 	return databaseAction(!cmd.Bool("repair"), doctorAction)(ctx, cmd)

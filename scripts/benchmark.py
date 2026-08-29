@@ -553,6 +553,14 @@ def _grouped_bar_chart(
             minimum_x = x_position(minimum)
             maximum_x = x_position(maximum)
             median_label = f"{median:.0f}"
+            label_padding = 6.0
+            estimated_label_width = len(median_label) * 7.0
+            if median_x + label_padding + estimated_label_width <= left + plot_width:
+                label_x = median_x + label_padding
+                label_anchor = "start"
+            else:
+                label_x = median_x - label_padding
+                label_anchor = "end"
             accessible = (
                 f"{RUNTIME_LABELS[runtime]}, {label}: median {median_label} milliseconds; "
                 f"observed range {minimum:.0f} to {maximum:.0f} milliseconds"
@@ -581,8 +589,9 @@ def _grouped_bar_chart(
                         css_class="runtime-marker",
                         size=3.5,
                     ),
-                    f'<text class="data-label" x="{maximum_x + 6:.1f}" y="{bar_center + 4:.1f}" '
-                    f'font-family="{BODY_FONT}" font-size="11" fill="{FOREGROUND}">{median_label}</text>',
+                    f'<text class="data-label" x="{label_x:.1f}" y="{bar_center + 4:.1f}" '
+                    f'text-anchor="{label_anchor}" font-family="{BODY_FONT}" font-size="11" '
+                    f'fill="{FOREGROUND}">{median_label}</text>',
                 )
             )
 

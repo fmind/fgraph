@@ -117,14 +117,11 @@ function pathEntryExists(path: string, description: string): boolean {
   }
 }
 
-function guardImplicitDatabasePath(): void {
-  if (!pathEntryExists(LEGACY_DEFAULT_DATABASE_PATH, "legacy")) return;
+function resolveImplicitDatabasePath(): string {
+  if (!pathEntryExists(LEGACY_DEFAULT_DATABASE_PATH, "legacy"))
+    return DEFAULT_DATABASE_PATH;
   if (!pathEntryExists(DEFAULT_DATABASE_PATH, "default"))
-    throw new FormatError(
-      `legacy default database ${LEGACY_DEFAULT_DATABASE_PATH} exists while ${DEFAULT_DATABASE_PATH} is absent; ` +
-        `use --db ${LEGACY_DEFAULT_DATABASE_PATH} to keep using it or explicitly pass --db ${DEFAULT_DATABASE_PATH} to create a new database`,
-    );
-
+    return LEGACY_DEFAULT_DATABASE_PATH;
   try {
     connect(DEFAULT_DATABASE_PATH, { readOnly: true }).close();
   } catch (error) {
@@ -134,6 +131,7 @@ function guardImplicitDatabasePath(): void {
         `use --db ${LEGACY_DEFAULT_DATABASE_PATH} to keep using the legacy file or explicitly pass --db ${DEFAULT_DATABASE_PATH} to select the new default: ${detail}`,
     );
   }
+  return DEFAULT_DATABASE_PATH;
 }
 
 function openSelectedDatabase(
@@ -146,8 +144,10 @@ function openSelectedDatabase(
     throw new FormatError(
       `database path is empty; pass --db PATH or unset FGRAPH_DB to use ${DEFAULT_DATABASE_PATH}`,
     );
-  if (implicitDatabasePath) guardImplicitDatabasePath();
-  return open(path, readOnly, queryBudget);
+  const selectedPath = implicitDatabasePath
+    ? resolveImplicitDatabasePath()
+    : path;
+  return open(selectedPath, readOnly, queryBudget);
 }
 
 function integer(value: string, context: string): number | bigint {

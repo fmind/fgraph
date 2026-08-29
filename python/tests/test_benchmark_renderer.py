@@ -103,3 +103,31 @@ def test_benchmark_charts_encode_quantitative_and_categorical_axes(
         "Median fresh-process CLI latency (ms; lower is better)",
     } <= latency_text
     assert len(latency.findall(".//svg:text[@class='data-label']", SVG)) == 15
+
+
+def test_read_chart_places_value_label_next_to_median_marker(benchmark: Any) -> None:
+    chart = benchmark._grouped_bar_chart(  # noqa: SLF001
+        "Read latency",
+        "Median with observed range.",
+        {"python": {"point_get": (100.0, 50.0, 1_000.0)}},
+        categories=(("point_get", "Point get"),),
+        x_label="Latency (ms)",
+    )
+    # The input is deterministic SVG emitted locally by the benchmark harness.
+    root = ElementTree.fromstring(chart)  # noqa: S314
+    label = root.find(".//svg:text[@class='data-label']", SVG)
+    marker = root.find(".//svg:circle[@class='runtime-marker']", SVG)
+    whisker = next(
+        line
+        for line in root.findall(".//svg:line", SVG)
+        if line.attrib.get("stroke") == benchmark.FOREGROUND and line.attrib["y1"] == line.attrib["y2"]
+    )
+
+    assert label is not None
+    assert label.text == "100"
+    assert marker is not None
+    label_x = float(label.attrib["x"])
+    median_x = float(marker.attrib["cx"])
+    maximum_x = float(whisker.attrib["x2"])
+    assert abs(label_x - median_x) <= 10
+    assert abs(label_x - median_x) < abs(label_x - maximum_x)

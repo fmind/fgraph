@@ -94,7 +94,7 @@ describe("CLI", () => {
     }
   });
 
-  it("requires an explicit choice when the legacy default exists", async () => {
+  it("keeps using the legacy default until the new default exists", async () => {
     const directory = temporaryDirectory();
     const previousDirectory = process.cwd();
     delete process.env.FGRAPH_DB;
@@ -103,10 +103,7 @@ describe("CLI", () => {
       expect((await invoke("init", "--db", "fgraph.db")).code).toBe(0);
 
       const implicit = await invoke("init");
-      expect(implicit.code).toBe(1);
-      expect(implicit.stderr).toContain("FormatError:");
-      expect(implicit.stderr).toContain("--db fgraph.db");
-      expect(implicit.stderr).toContain("--db facts.fgraph");
+      expect(implicit.code).toBe(0);
       expect(existsSync("facts.fgraph")).toBe(false);
 
       process.env.FGRAPH_DB = "";

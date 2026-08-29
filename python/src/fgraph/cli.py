@@ -31,7 +31,9 @@ app = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False, help="Te
 DEFAULT_DATABASE_PATH = "facts.fgraph"
 LEGACY_DEFAULT_DATABASE_PATH = "fgraph.db"
 
-DbOption = Annotated[str | None, typer.Option("--db", envvar="FGRAPH_DB", help="SQLite database path.")]
+# The callback alone reads FGRAPH_DB. Command-local --db remains available, but
+# an absent local option must not override a global explicit value with the env.
+DbOption = Annotated[str | None, typer.Option("--db", help="SQLite database path.")]
 JsonOption = Annotated[bool, typer.Option("--json", help="Emit canonical machine-readable JSON.")]
 FilterOption = Annotated[list[str] | None, typer.Option("--filter", help="JSON [attribute,value], repeatable.")]
 EmbedOption = Annotated[str | None, typer.Option("--embed-cmd")]
@@ -88,7 +90,7 @@ def _open(path: str | None, *, read_only: bool = False) -> Db:
             f"database path is empty; pass --db PATH or unset FGRAPH_DB to use {DEFAULT_DATABASE_PATH}"
         )
     if path is None and options.db_is_implicit:
-        _guard_implicit_database_path()
+        selected_path = _resolve_implicit_database_path()
     return fgraph.connect(
         selected_path,
         read_only=read_only,
@@ -108,19 +110,14 @@ def _path_entry_exists(path: Path, *, description: str) -> bool:
     return True
 
 
-def _guard_implicit_database_path() -> None:
+def _resolve_implicit_database_path() -> str:
     legacy = Path(LEGACY_DEFAULT_DATABASE_PATH)
     if not _path_entry_exists(legacy, description="legacy"):
-        return
+        return DEFAULT_DATABASE_PATH
 
     current = Path(DEFAULT_DATABASE_PATH)
     if not _path_entry_exists(current, description="default"):
-        raise fgraph.FormatError(
-            f"legacy default database {legacy!s} exists while {current!s} is absent; "
-            f"use --db {legacy!s} to keep using it or explicitly pass --db {current!s} "
-            "to create a new database"
-        )
-
+        return LEGACY_DEFAULT_DATABASE_PATH
     try:
         with fgraph.connect(current, read_only=True):
             pass
@@ -130,6 +127,7 @@ def _guard_implicit_database_path() -> None:
             f"fgraph database; use --db {legacy!s} to keep using the legacy file or explicitly "
             f"pass --db {current!s} to select the new default"
         ) from exc
+    return DEFAULT_DATABASE_PATH
 
 
 def run_mcp(graph: Any, *, read_only: bool, embed_cmd: str | None) -> None:

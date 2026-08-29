@@ -75,7 +75,38 @@ def test_cli_default_database_path_is_facts_graph(tmp_path: Path, monkeypatch: p
     assert explicit_path.is_file()
 
 
-def test_cli_legacy_implicit_default_requires_explicit_choice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_explicit_database_path_overrides_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    environment_path = tmp_path / "environment.fgraph"
+    monkeypatch.setenv("FGRAPH_DB", str(environment_path))
+
+    for placement in ("global", "command"):
+        explicit_path = tmp_path / f"{placement}.fgraph"
+        arguments = ["--db", str(explicit_path), "init"]
+        if placement == "command":
+            arguments = ["init", "--db", str(explicit_path)]
+        result = runner.invoke(
+            cli.app,
+            arguments,
+            env={"FGRAPH_CLOCK": "1767225600000000"},
+        )
+        assert result.exit_code == 0, result.output
+        assert explicit_path.is_file()
+
+    assert not environment_path.exists()
+
+    rejected = runner.invoke(
+        cli.app,
+        ["--db", "", "init"],
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+    assert rejected.exit_code == 1
+    assert isinstance(rejected.exception, fgraph.FormatError)
+    assert "database path is empty" in str(rejected.exception)
+    assert not environment_path.exists()
+
+
+def test_cli_legacy_implicit_default_remains_compatible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("FGRAPH_DB", raising=False)
 
@@ -91,10 +122,7 @@ def test_cli_legacy_implicit_default_requires_explicit_choice(tmp_path: Path, mo
         ["init"],
         env={"FGRAPH_CLOCK": "1767225600000000"},
     )
-    assert implicit.exit_code == 1
-    assert isinstance(implicit.exception, fgraph.FormatError)
-    assert "--db fgraph.db" in str(implicit.exception)
-    assert "--db facts.fgraph" in str(implicit.exception)
+    assert implicit.exit_code == 0, implicit.output
     assert not Path("facts.fgraph").exists()
 
     empty_environment = runner.invoke(

@@ -23,9 +23,9 @@ Run `fgraph COMMAND --help` for the exact options accepted by the installed vers
 
 Machine-readable non-stream output is canonical JSON. Portable protocols are newline-delimited JSON and therefore stream one complete canonical record per line.
 
-The database path resolves with one explicit precedence: `--db PATH`, then `FGRAPH_DB`, then `facts.fgraph`. A selected path must not be empty; unset `FGRAPH_DB` to use the default.
+The database path resolves with one explicit precedence: `--db PATH`, then `FGRAPH_DB`, then the implicit local selection described below. A selected path must not be empty; unset `FGRAPH_DB` to use the implicit selection.
 
-For upgrade safety, when the legacy default `fgraph.db` exists, an implicit database-opening command requires `facts.fgraph` to already be an initialized fgraph database. A missing, empty, or unrelated new-default file produces a typed error before any mutation. Pass `--db fgraph.db` to keep using the existing file or explicitly pass `--db facts.fgraph` to select and initialize the new default. Help and version commands do not inspect either file.
+For upgrade safety, an implicit command keeps using a legacy-only `fgraph.db`; fresh directories use `facts.fgraph`; and an initialized `facts.fgraph` takes precedence once both files exist. If both exist but the new default is empty or unrelated, fgraph returns a typed error before mutation. Pass either path explicitly to override this transition. Help, version, and invalid usage do not inspect either file.
 
 ## Commands
 

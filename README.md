@@ -121,7 +121,7 @@ All three implementations expose the same v1 commands. The examples below use an
 
 `--db` defaults to `facts.fgraph` in the current directory. `FGRAPH_DB` overrides that default, and an explicit `--db` takes precedence over the environment. An explicitly selected path must not be empty; unset `FGRAPH_DB` to use the default.
 
-Upgrading from a release that used `fgraph.db` does not silently create a second database: when that legacy file exists, an implicit database-opening command requires `facts.fgraph` to already be an initialized fgraph database. Otherwise it fails with an actionable `FormatError`. Pass `--db fgraph.db` to keep using the legacy file, or explicitly pass `--db facts.fgraph` to select and initialize the new default. Help and version commands do not inspect either file.
+Upgrading from a release that used `fgraph.db` does not silently create a second database. An implicit command keeps using a legacy-only `fgraph.db`; fresh directories use `facts.fgraph`; and an initialized `facts.fgraph` takes precedence once both files exist. If both exist but the new default is empty or unrelated, fgraph fails before mutation. Pass either path explicitly to override this transition. Help, version, and invalid usage do not inspect either file.
 
 ```bash
 fgraph --db project.db add \

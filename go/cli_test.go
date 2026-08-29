@@ -101,8 +101,9 @@ func runCLIForTest(t *testing.T, stdin string, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
-func unsetEnvironmentForTest(t *testing.T, name string) {
+func unsetFGraphDBForTest(t *testing.T) {
 	t.Helper()
+	const name = "FGRAPH_DB"
 	previous, existed := os.LookupEnv(name)
 	if err := os.Unsetenv(name); err != nil {
 		t.Fatal(err)
@@ -123,7 +124,7 @@ func unsetEnvironmentForTest(t *testing.T, name string) {
 func TestCLIDefaultDatabasePath(t *testing.T) {
 	directory := t.TempDir()
 	t.Chdir(directory)
-	unsetEnvironmentForTest(t, "FGRAPH_DB")
+	unsetFGraphDBForTest(t)
 
 	if _, err := runCLIForTest(t, "", "init"); err != nil {
 		t.Fatal(err)
@@ -153,18 +154,16 @@ func TestCLIDefaultDatabasePath(t *testing.T) {
 	}
 }
 
-func TestCLILegacyImplicitDefaultRequiresExplicitChoice(t *testing.T) {
+func TestCLILegacyImplicitDefaultRemainsCompatible(t *testing.T) {
 	directory := t.TempDir()
 	t.Chdir(directory)
-	unsetEnvironmentForTest(t, "FGRAPH_DB")
+	unsetFGraphDBForTest(t)
 
 	if _, err := runCLIForTest(t, "", "init", "--db", "fgraph.db"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runCLIForTest(t, "", "init"); !errors.Is(err, ErrFormat) {
-		t.Fatalf("implicit legacy default error = %v, want FormatError", err)
-	} else if !strings.Contains(err.Error(), "--db fgraph.db") || !strings.Contains(err.Error(), "--db facts.fgraph") {
-		t.Fatalf("implicit legacy default error is not actionable: %v", err)
+	if _, err := runCLIForTest(t, "", "init"); err != nil {
+		t.Fatalf("implicit legacy default selection failed: %v", err)
 	}
 	if _, err := os.Lstat("facts.fgraph"); !os.IsNotExist(err) {
 		t.Fatalf("implicit invocation created facts.fgraph or could not inspect it: %v", err)
@@ -212,10 +211,64 @@ func TestCLILegacyImplicitDefaultRequiresExplicitChoice(t *testing.T) {
 	}
 }
 
+func TestCLIRejectsInvalidArityBeforeOpeningDatabase(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+	unsetFGraphDBForTest(t)
+	if err := os.WriteFile(legacyDefaultDatabasePath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := [][]string{
+		{"init", "extra"},
+		{"info", "extra"},
+		{"add"},
+		{"retract"},
+		{"get"},
+		{"q"},
+		{"explain"},
+		{"datoms", "eavt", "extra"},
+		{"history"},
+		{"why"},
+		{"tx"},
+		{"diff", "64"},
+		{"declare"},
+		{"shape"},
+		{"validate"},
+		{"schema", "a", "b"},
+		{"schema-export", "extra"},
+		{"schema-check"},
+		{"schema-apply"},
+		{"apply", "a", "b"},
+		{"snapshot", "extra"},
+		{"restore", "a", "b"},
+		{"undo"},
+		{"excise", "--operation-id", "test", "--if-basis-tx", "64"},
+		{"tail", "extra"},
+		{"backup"},
+		{"doctor", "extra"},
+		{"mcp", "extra"},
+		{"version", "extra"},
+	}
+	for _, args := range cases {
+		_, err := runCLIForTest(t, "", args...)
+		var exit cli.ExitCoder
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Errorf("%v error = %v, want usage exit 2 before database access", args, err)
+		}
+	}
+	if info, err := os.Stat(legacyDefaultDatabasePath); err != nil || info.Size() != 0 {
+		t.Fatalf("invalid usage modified the legacy path: info=%v err=%v", info, err)
+	}
+	if _, err := os.Lstat(defaultDatabasePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid usage created the new default path: %v", err)
+	}
+}
+
 func TestCLIRejectsMalformedHistoricalSelectorBeforeOpeningDatabase(t *testing.T) {
 	directory := t.TempDir()
 	t.Chdir(directory)
-	unsetEnvironmentForTest(t, "FGRAPH_DB")
+	unsetFGraphDBForTest(t)
 	if err := os.WriteFile(legacyDefaultDatabasePath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -56,6 +56,19 @@ func TestDecodeJSONRejectsUnpairedUnicodeSurrogates(t *testing.T) {
 	}
 }
 
+func TestDecodeJSONValidatesUnicodeEscapeLexing(t *testing.T) {
+	decoded, err := DecodeJSON(strings.NewReader(`"\u00AF"`))
+	if err != nil || decoded != "¯" {
+		t.Fatalf("uppercase hexadecimal escape = %#v, %v; want %q", decoded, err, "¯")
+	}
+
+	for _, raw := range []string{`"\`, `"\u"`, `"\u12G4"`} {
+		if _, err := DecodeJSON(strings.NewReader(raw)); !errors.Is(err, ErrType) {
+			t.Errorf("DecodeJSON(%q) error = %v, want TypeError", raw, err)
+		}
+	}
+}
+
 func TestCanonicalIntegralFloatBoundariesRemainStrictlyDecodable(t *testing.T) {
 	positiveLimit := math.Ldexp(1, 63)
 	negativeLimit := -positiveLimit
