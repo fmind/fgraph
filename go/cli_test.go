@@ -212,6 +212,39 @@ func TestCLILegacyImplicitDefaultRequiresExplicitChoice(t *testing.T) {
 	}
 }
 
+func TestCLIRejectsMalformedHistoricalSelectorBeforeOpeningDatabase(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+	unsetEnvironmentForTest(t, "FGRAPH_DB")
+	if err := os.WriteFile(legacyDefaultDatabasePath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"get", "entity", "--at", "not-an-integer"},
+		{"q", `{}`, "--at", "not-an-integer"},
+	} {
+		_, err := runCLIForTest(t, "", args...)
+		var exit cli.ExitCoder
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(err.Error(), "is not an integer") {
+			t.Errorf("%v error = %v, want actionable usage exit 2", args, err)
+		}
+	}
+	if _, err := os.Lstat(defaultDatabasePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("malformed historical selector reached database opening: %v", err)
+	}
+}
+
+func TestCLIMCPEmbedCommandHandlesCleanEOF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.fgraph")
+	if _, err := runCLIForTest(t, "", "init", "--db", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLIForTest(t, "", "mcp", "--db", path, "--embed-cmd", "unused"); err != nil {
+		t.Fatalf("MCP clean EOF with an embedding command: %v", err)
+	}
+}
+
 func TestCLIBatchedAddIsBoundedAndResumable(t *testing.T) {
 	t.Setenv("FGRAPH_CLOCK", "1767225600000000")
 	path := filepath.Join(t.TempDir(), "bulk.db")
