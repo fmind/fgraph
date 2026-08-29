@@ -69,6 +69,16 @@ func TestPortableReadersPreserveTooLargeTaxonomy(t *testing.T) {
 	}
 }
 
+func TestSortedStringsReturnsSortedCopy(t *testing.T) {
+	input := []string{"z", "a", "m"}
+	if got := sortedStrings(input); strings.Join(got, ",") != "a,m,z" {
+		t.Fatalf("sorted strings = %v", got)
+	}
+	if strings.Join(input, ",") != "z,a,m" {
+		t.Fatalf("sortedStrings mutated its input: %v", input)
+	}
+}
+
 func TestRestoreUsesExpandedSnapshotRecordCap(t *testing.T) {
 	header := `{"basis":"00000000-0000-4000-8000-000000000040","created_at":1767225600000000,"fgraph":"snapshot/1","format":2}`
 	// Snapshot receipts embed canonical event_data and may therefore be larger
