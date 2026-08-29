@@ -726,11 +726,11 @@ describe("CLI", () => {
     const database = join(directory, "errors.db");
     expect(await invoke("--version")).toMatchObject({
       code: 0,
-      stdout: "1.1.0\n",
+      stdout: "1.2.0\n",
     });
     expect(await invoke("version")).toMatchObject({
       code: 0,
-      stdout: "1.1.0\n",
+      stdout: "1.2.0\n",
     });
     expect(await invoke("--help")).toMatchObject({ code: 0 });
     expect(await invoke("-h")).toMatchObject({ code: 0 });

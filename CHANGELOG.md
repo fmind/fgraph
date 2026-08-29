@@ -4,6 +4,8 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+## [1.2.0] - 2026-08-29
+
 ### Added
 
 - Add flat Overview, CLI Reference, and cross-runtime SDK Reference documentation with rendered navigation invariants.

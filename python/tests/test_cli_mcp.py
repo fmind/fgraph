@@ -91,7 +91,7 @@ def test_cli_full_workflow(tmp_path: Path) -> None:
     assert replay_summary["applied"] == 4
     assert replay_summary["already_applied"] == 0
     assert json.loads(_invoke(["get", "ada", "--db", str(applied)]).stdout)["person/name"] == "Ada"
-    assert _invoke(["version"]).stdout.strip() == "1.1.0"
+    assert _invoke(["version"]).stdout.strip() == "1.2.0"
 
 
 def test_cli_strict_json_duplicate_and_usage(tmp_path: Path) -> None:

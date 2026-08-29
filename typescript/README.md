@@ -5,7 +5,7 @@ An embedded temporal fact store in one SQLite file. fgraph keeps immutable facts
 The strict ESM package requires the Node.js 24 LTS line (24.19 or newer) and uses `better-sqlite3` with lossless 64-bit integers. Install the stable line:
 
 ```bash
-npm add @fmind-dev/fgraph@^1.1.0
+npm add @fmind-dev/fgraph@^1.2.0
 ```
 
 For contribution work, install and build this checkout with `npm ci --prefix typescript && npm run build --prefix typescript`.

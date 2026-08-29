@@ -32,7 +32,7 @@ import {
 } from "./store.js";
 import { INT64_MAX, INT64_MIN } from "./values.js";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const DEFAULT_DATABASE_PATH = "facts.fgraph";
 const LEGACY_DEFAULT_DATABASE_PATH = "fgraph.db";
 
