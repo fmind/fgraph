@@ -41,6 +41,23 @@ assert_usage_error() { # $1 = runtime, $2 = label, remaining arguments = CLI arg
   fi
 }
 
+assert_type_error() { # $1 = runtime, $2 = label, remaining arguments = CLI arguments
+  runtime=$1
+  label=$2
+  shift 2
+  if run_cli "${runtime}" "$@" >"${label}.stdout" 2>"${label}.stderr"; then
+    echo "crosscheck: ${runtime} accepted invalid ${label} input" >&2
+    exit 1
+  else
+    type_status=$?
+  fi
+  if test "${type_status}" -ne 1; then
+    echo "crosscheck: ${runtime} ${label} exited ${type_status}, expected typed exit 1" >&2
+    exit 1
+  fi
+  grep -F -- 'TypeError:' "${label}.stderr" >/dev/null
+}
+
 run_scenario() { # $1 = runtime, $2 = database path
   runtime=$1
   database=$2
@@ -153,8 +170,25 @@ check_default_path_migration() { # $1 = runtime
     touch facts.fgraph
     assert_usage_error "${runtime}" init-extra init extra
     assert_usage_error "${runtime}" get-missing get
+    assert_usage_error "${runtime}" get-unknown-option get --definitely-invalid
+    assert_usage_error "${runtime}" history-unknown-option history person --definitely-invalid
+    assert_usage_error "${runtime}" depth-numeric-syntax get person --depth 1e0
+    assert_usage_error "${runtime}" batch-numeric-syntax add '{}' --batch-size 1.0
     assert_usage_error "${runtime}" mcp-extra mcp extra
     assert_usage_error "${runtime}" version-extra version extra
+    assert_usage_error "${runtime}" tx-invalid tx not-an-int
+    assert_type_error "${runtime}" tx-overflow tx 9223372036854775808
+    assert_type_error "${runtime}" undo-underflow undo -- -9223372036854775809
+    assert_type_error "${runtime}" diff-overflow diff 9223372036854775808 64
+    assert_usage_error "${runtime}" declare-cardinality declare person/name --many --one
+    assert_usage_error "${runtime}" declare-uniqueness declare person/name --unique --not-unique
+    assert_usage_error "${runtime}" declare-history declare person/name --nohistory --history
+    assert_usage_error "${runtime}" shape-closure shape person --closed --open
+    assert_usage_error "${runtime}" excise-options excise person
+    assert_usage_error "${runtime}" add-batch-size add '{}' --batch-size 0
+    assert_usage_error "${runtime}" add-operation-ids add '{}' --operation-id one --operation-id-prefix many
+    assert_usage_error "${runtime}" add-prefix add '{}' --operation-id-prefix many
+    assert_usage_error "${runtime}" mcp-modes mcp --write --read-only
     test ! -s facts.fgraph
     if run_cli "${runtime}" init --json >unclaimed.stdout 2>unclaimed.stderr; then
       echo "crosscheck: ${runtime} initialized an unclaimed facts.fgraph beside the legacy database" >&2
@@ -170,6 +204,10 @@ check_default_path_migration() { # $1 = runtime
 
     run_cli "${runtime}" init --db facts.fgraph --json >/dev/null
     run_cli "${runtime}" init --json >/dev/null
+    run_cli "${runtime}" --json add '[{"id":"-alice","profile/name":"Alice"},{"id":"--db","profile/name":"Database"},{"id":"--depth","profile/name":"Depth"}]' >/dev/null
+    run_cli "${runtime}" --json get -- -alice | jq -e '."profile/name" == "Alice"' >/dev/null
+    run_cli "${runtime}" --json get -- --db | jq -e '."profile/name" == "Database"' >/dev/null
+    run_cli "${runtime}" --json get -- --depth | jq -e '."profile/name" == "Depth"' >/dev/null
   )
 }
 

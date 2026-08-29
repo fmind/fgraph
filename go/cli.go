@@ -123,6 +123,13 @@ func RunCLI(ctx context.Context, args []string, reader io.Reader, writer, errWri
 
 type dbAction func(context.Context, *cli.Command, *DB) error
 
+const validatedCLIArgumentsKey = "fgraph.validated-arguments"
+
+type validatedCLIArguments struct {
+	firstTransaction  int64
+	secondTransaction int64
+}
+
 func withArgumentCount(minimum, maximum int, message string, action cli.ActionFunc) cli.ActionFunc {
 	return func(ctx context.Context, cmd *cli.Command) error {
 		count := cmd.Args().Len()
@@ -135,6 +142,9 @@ func withArgumentCount(minimum, maximum int, message string, action cli.ActionFu
 
 func databaseAction(readOnly bool, action dbAction) cli.ActionFunc {
 	return func(ctx context.Context, cmd *cli.Command) (result error) {
+		if err := validateCLIUsage(cmd); err != nil {
+			return err
+		}
 		db, err := openCLI(cmd, readOnly)
 		if err != nil {
 			return err
@@ -142,6 +152,101 @@ func databaseAction(readOnly bool, action dbAction) cli.ActionFunc {
 		defer func() { result = joinErrors(result, db.Close()) }()
 		return action(ctx, cmd, db)
 	}
+}
+
+func validateCLIUsage(cmd *cli.Command) error {
+	switch cmd.Name {
+	case "add":
+		batchSize := cmd.Int("batch-size")
+		if batchSize < 0 || batchSize > 10_000 || cmd.IsSet("batch-size") && batchSize == 0 {
+			return usage("--batch-size must be between 1 and 10000")
+		}
+		if cmd.IsSet("operation-id") && cmd.IsSet("operation-id-prefix") {
+			return usage("choose --operation-id for one transaction or --operation-id-prefix for batches")
+		}
+		if cmd.IsSet("operation-id-prefix") && batchSize == 0 {
+			return usage("--operation-id-prefix requires --batch-size")
+		}
+	case "declare":
+		if cmd.Bool("one") && cmd.IsSet("many") {
+			return usage("declare cannot combine --many and --one")
+		}
+		if cmd.Bool("not-unique") && cmd.IsSet("unique") {
+			return usage("declare cannot combine --unique and --not-unique")
+		}
+		if cmd.Bool("history") && cmd.IsSet("nohistory") {
+			return usage("declare cannot combine --nohistory and --history")
+		}
+	case "diff":
+		from, err := parseCLIInteger(cmd.Args().Get(0), "start transaction")
+		if err != nil {
+			return err
+		}
+		to, err := parseCLIInteger(cmd.Args().Get(1), "end transaction")
+		if err != nil {
+			return err
+		}
+		storeValidatedCLIArguments(cmd, from, to)
+	case "excise":
+		if !cmd.IsSet("operation-id") || !cmd.IsSet("if-basis-tx") {
+			return usage("excise requires --operation-id and --if-basis-tx")
+		}
+	case "mcp":
+		if cmd.Bool("write") && cmd.Bool("read-only") {
+			return usage("mcp --write conflicts with --read-only")
+		}
+	case "shape":
+		if cmd.Bool("closed") && cmd.Bool("open") {
+			return usage("shape --closed and --open are mutually exclusive")
+		}
+	case "tx":
+		tx, err := parseCLIInteger(cmd.Args().First(), "transaction id")
+		if err != nil {
+			return err
+		}
+		storeValidatedCLIArguments(cmd, tx, 0)
+	case "undo":
+		tx, err := parseCLIInteger(cmd.Args().First(), "transaction id")
+		if err != nil {
+			return err
+		}
+		storeValidatedCLIArguments(cmd, tx, 0)
+	}
+	return nil
+}
+
+func parseCLIInteger(raw, context string) (int64, error) {
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err == nil {
+		return value, nil
+	}
+	if errors.Is(err, strconv.ErrSyntax) {
+		return 0, usage("invalid %s %q", context, raw)
+	}
+	return 0, fail(ErrType, "%s %q is outside the signed 64-bit integer range", context, raw)
+}
+
+func storeValidatedCLIArguments(cmd *cli.Command, firstTransaction, secondTransaction int64) {
+	if cmd.Metadata == nil {
+		cmd.Metadata = map[string]any{}
+	}
+	// Carry parsed integers across the pre-open boundary so actions never need
+	// to repeat user-input validation after SQLite has been selected.
+	cmd.Metadata[validatedCLIArgumentsKey] = validatedCLIArguments{
+		firstTransaction: firstTransaction, secondTransaction: secondTransaction,
+	}
+}
+
+func loadValidatedCLIArguments(cmd *cli.Command) (validatedCLIArguments, error) {
+	validated, ok := cmd.Metadata[validatedCLIArgumentsKey].(validatedCLIArguments)
+	if !ok {
+		return validatedCLIArguments{}, fail(
+			ErrFormat,
+			"CLI command %q reached database execution without validated transaction arguments",
+			cmd.Name,
+		)
+	}
+	return validated, nil
 }
 
 func openCLI(cmd *cli.Command, readOnly bool) (*DB, error) {
@@ -270,15 +375,6 @@ func mutationOptions(cmd *cli.Command) []TxOption {
 
 func addAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 	batchSize := cmd.Int("batch-size")
-	if batchSize < 0 || batchSize > 10_000 || cmd.IsSet("batch-size") && batchSize == 0 {
-		return usage("--batch-size must be between 1 and 10000")
-	}
-	if cmd.IsSet("operation-id") && cmd.IsSet("operation-id-prefix") {
-		return usage("choose --operation-id for one transaction or --operation-id-prefix for batches")
-	}
-	if cmd.IsSet("operation-id-prefix") && batchSize == 0 {
-		return usage("--operation-id-prefix requires --batch-size")
-	}
 	if batchSize > 0 {
 		return addBatchesAction(ctx, cmd, db, batchSize)
 	}
@@ -294,7 +390,7 @@ func addAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 		return err
 	}
 	if cmd.IsSet("operation-id") && len(payloads) > 1 && batchSize == 0 {
-		return usage("--operation-id requires one JSON transaction, not NDJSON")
+		return fail(ErrType, "--operation-id requires one JSON transaction, not NDJSON")
 	}
 	options := mutationOptions(cmd)
 	if batchSize == 0 && len(payloads) == 1 {
@@ -302,7 +398,7 @@ func addAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 		return outputResult(cmd, report, err)
 	}
 	if cmd.IsSet("if-basis-tx") && len(payloads) > 1 {
-		return usage("--if-basis-tx cannot span multiple batches; use idempotent batch operation ids")
+		return fail(ErrType, "--if-basis-tx cannot span multiple batches; use idempotent batch operation ids")
 	}
 	reports := []TxReport{}
 	for _, payload := range payloads {
@@ -405,7 +501,7 @@ func addBatchesAction(ctx context.Context, cmd *cli.Command, db *DB, batchSize i
 			if cmd.IsSet("operation-id") {
 				option = "--operation-id"
 			}
-			return usage("%s cannot span multiple batches; use idempotent batch operation ids", option)
+			return fail(ErrType, "%s cannot span multiple batches; use idempotent batch operation ids", option)
 		}
 	}
 
@@ -673,15 +769,11 @@ func whyAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func diffAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	from, err := strconv.ParseInt(cmd.Args().Get(0), 10, 64)
+	validated, err := loadValidatedCLIArguments(cmd)
 	if err != nil {
-		return usage("invalid start transaction %q", cmd.Args().Get(0))
+		return err
 	}
-	to, err := strconv.ParseInt(cmd.Args().Get(1), 10, 64)
-	if err != nil {
-		return usage("invalid end transaction %q", cmd.Args().Get(1))
-	}
-	result, err := db.Diff(ctx, from, to)
+	result, err := db.Diff(ctx, validated.firstTransaction, validated.secondTransaction)
 	return outputResult(cmd, result, err)
 }
 
@@ -697,9 +789,6 @@ func declareAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 		options = append(options, func(o *declareOptions) { o.many = &value })
 	}
 	if cmd.Bool("one") {
-		if cmd.IsSet("many") {
-			return usage("declare cannot combine --many and --one")
-		}
 		options = append(options, Many(false))
 	}
 	if cmd.IsSet("unique") {
@@ -707,18 +796,12 @@ func declareAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 		options = append(options, func(o *declareOptions) { o.unique = &value })
 	}
 	if cmd.Bool("not-unique") {
-		if cmd.IsSet("unique") {
-			return usage("declare cannot combine --unique and --not-unique")
-		}
 		options = append(options, Unique(false))
 	}
 	if cmd.IsSet("nohistory") {
 		options = append(options, NoHistory(cmd.Bool("nohistory")))
 	}
 	if cmd.Bool("history") {
-		if cmd.IsSet("nohistory") {
-			return usage("declare cannot combine --nohistory and --history")
-		}
 		options = append(options, NoHistory(false))
 	}
 	if cmd.IsSet("dims") {
@@ -735,9 +818,6 @@ func declareAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func shapeAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if cmd.Bool("closed") && cmd.Bool("open") {
-		return usage("shape --closed and --open are mutually exclusive")
-	}
 	report, err := db.DeclareShape(ctx, cmd.Args().First(), ShapeDefinition{
 		Required: cmd.StringSlice("required"), Allowed: cmd.StringSlice("allowed"), Closed: cmd.Bool("closed"),
 	}, mutationOptions(cmd)...)
@@ -906,18 +986,15 @@ func restoreAction(ctx context.Context, cmd *cli.Command, db *DB) (result error)
 }
 
 func undoAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	tx, err := strconv.ParseInt(cmd.Args().First(), 10, 64)
+	validated, err := loadValidatedCLIArguments(cmd)
 	if err != nil {
-		return usage("invalid transaction id %q", cmd.Args().First())
+		return err
 	}
-	report, err := db.Undo(ctx, tx, mutationOptions(cmd)...)
+	report, err := db.Undo(ctx, validated.firstTransaction, mutationOptions(cmd)...)
 	return outputResult(cmd, report, err)
 }
 
 func exciseAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	if !cmd.IsSet("operation-id") || !cmd.IsSet("if-basis-tx") {
-		return usage("excise requires --operation-id and --if-basis-tx")
-	}
 	report, err := db.Excise(
 		ctx,
 		parseRef(cmd.Args().First()),
@@ -928,11 +1005,11 @@ func exciseAction(ctx context.Context, cmd *cli.Command, db *DB) error {
 }
 
 func txAction(ctx context.Context, cmd *cli.Command, db *DB) error {
-	tx, err := strconv.ParseInt(cmd.Args().First(), 10, 64)
-	if err != nil || tx < GenesisTx {
-		return usage("invalid transaction id %q", cmd.Args().First())
+	validated, err := loadValidatedCLIArguments(cmd)
+	if err != nil {
+		return err
 	}
-	receipt, err := db.Receipt(ctx, tx)
+	receipt, err := db.Receipt(ctx, validated.firstTransaction)
 	return outputResult(cmd, receipt, err)
 }
 
@@ -977,8 +1054,8 @@ func doctorCLIAction(ctx context.Context, cmd *cli.Command) error {
 }
 
 func mcpAction(ctx context.Context, cmd *cli.Command) (result error) {
-	if cmd.Bool("write") && cmd.Bool("read-only") {
-		return usage("mcp --write conflicts with --read-only")
+	if err := validateCLIUsage(cmd); err != nil {
+		return err
 	}
 	write := cmd.Bool("write")
 	db, err := openCLI(cmd, !write)

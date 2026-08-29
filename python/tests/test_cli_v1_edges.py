@@ -180,6 +180,100 @@ def test_cli_legacy_implicit_default_remains_compatible(tmp_path: Path, monkeypa
     assert both.exit_code == 0, both.output
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["tx", "not-an-int"],
+        ["diff", "not-an-int", "64"],
+        ["diff", "64", "not-an-int"],
+        ["undo", "not-an-int"],
+        ["declare", "person/name", "--many", "--one"],
+        ["declare", "person/name", "--unique", "--not-unique"],
+        ["declare", "person/name", "--nohistory", "--history"],
+        ["shape", "person", "--closed", "--open"],
+        ["excise", "person"],
+        ["add", "{}", "--batch-size", "0"],
+        ["add", "{}", "--batch-size", "10001"],
+        ["add", "{}", "--operation-id", "one", "--operation-id-prefix", "many"],
+        ["add", "{}", "--operation-id-prefix", "many"],
+        ["mcp", "--write", "--read-only"],
+    ],
+)
+def test_cli_rejects_semantic_usage_before_opening_database(
+    arguments: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FGRAPH_DB", raising=False)
+    legacy = Path("fgraph.db")
+    legacy.touch()
+
+    result = runner.invoke(
+        cli.app,
+        arguments,
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+
+    assert result.exit_code == 2, (arguments, result.output, result.exception)
+    assert legacy.read_bytes() == b""
+    assert not Path("facts.fgraph").exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["tx", str(2**63)],
+        ["tx", "--", str(-(2**63) - 1)],
+        ["diff", str(2**63), "64"],
+        ["diff", "64", "--", str(-(2**63) - 1)],
+        ["undo", str(2**63)],
+    ],
+)
+def test_cli_rejects_out_of_range_transactions_before_opening_database(
+    arguments: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FGRAPH_DB", raising=False)
+    legacy = Path("fgraph.db")
+    legacy.touch()
+
+    result = runner.invoke(
+        cli.app,
+        arguments,
+        env={"FGRAPH_CLOCK": "1767225600000000"},
+    )
+
+    assert result.exit_code == 1, (arguments, result.output, result.exception)
+    assert isinstance(result.exception, fgraph.TypeError)
+    assert "signed 64-bit" in str(result.exception)
+    assert legacy.read_bytes() == b""
+    assert not Path("facts.fgraph").exists()
+
+
+def test_cli_maps_inverse_declaration_flags_explicitly(tmp_path: Path) -> None:
+    database = tmp_path / "inverse.fgraph"
+
+    _invoke(
+        [
+            "declare",
+            "edge/value",
+            "--ref",
+            "--one",
+            "--not-unique",
+            "--history",
+            "--db",
+            str(database),
+        ]
+    )
+    manifest = json.loads(_invoke(["schema", "edge/value", "--db", str(database)]).stdout)
+
+    assert manifest["attributes"][0]["declared"] == {
+        "many": False,
+        "nohistory": False,
+        "type": "ref",
+        "unique": False,
+    }
+
+
 @pytest.mark.parametrize("command", ["export", "import"])
 def test_cli_omits_legacy_portable_commands(command: str) -> None:
     result = runner.invoke(cli.app, [command, "--help"])
@@ -434,14 +528,25 @@ def test_cli_batched_add_validates_idempotency_options_before_mutation(tmp_path:
         ],
         input=stream,
     )
-    assert isinstance(conflicting.exception, fgraph.TypeError)
+    assert conflicting.exit_code == 2, conflicting.output
+    assert not database.exists()
 
     missing_batch_size = runner.invoke(
         cli.app,
         ["add", "-", "--operation-id-prefix", "import", "--db", str(database)],
         input=stream,
     )
-    assert isinstance(missing_batch_size.exception, fgraph.TypeError)
+    assert missing_batch_size.exit_code == 2, missing_batch_size.output
+    assert not database.exists()
+
+    for option in (["--operation-id", "import:one"], ["--if-basis-tx", "64"]):
+        spans_transactions = runner.invoke(
+            cli.app,
+            ["add", "-", *option, "--db", str(database)],
+            input=stream,
+        )
+        assert isinstance(spans_transactions.exception, fgraph.TypeError)
+        assert not database.exists()
 
     spans_batches = runner.invoke(
         cli.app,

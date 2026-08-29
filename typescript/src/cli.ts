@@ -35,6 +35,100 @@ import { INT64_MAX, INT64_MIN } from "./values.js";
 const VERSION = "1.2.0";
 const DEFAULT_DATABASE_PATH = "facts.fgraph";
 const LEGACY_DEFAULT_DATABASE_PATH = "fgraph.db";
+const VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  "--args",
+  "--at",
+  "--batch-size",
+  "--components",
+  "--cursor",
+  "--depth",
+  "--dims",
+  "--doc",
+  "--embed-cmd",
+  "--expand",
+  "--filter",
+  "--if-basis-tx",
+  "--k",
+  "--limit",
+  "--operation-id",
+  "--operation-id-prefix",
+  "--required",
+  "--allowed",
+  "--since",
+  "--source",
+  "--text",
+  "--text-attribute",
+  "--type",
+  "--vector",
+  "--vector-attribute",
+  "--vector-model",
+]);
+const COMMAND_OPTIONS = {
+  init: [],
+  info: [],
+  add: [
+    "--batch-size",
+    "--operation-id-prefix",
+    "--operation-id",
+    "--if-basis-tx",
+  ],
+  retract: ["--operation-id", "--if-basis-tx"],
+  get: ["--depth", "--at"],
+  tx: [],
+  q: ["--args", "--at"],
+  explain: ["--args"],
+  datoms: ["--source", "--components", "--cursor", "--limit"],
+  search: [
+    "--text",
+    "--vector",
+    "--embed-cmd",
+    "--k",
+    "--expand",
+    "--vector-attribute",
+    "--text-attribute",
+    "--filter",
+  ],
+  history: [],
+  why: [],
+  diff: [],
+  declare: [
+    "--operation-id",
+    "--if-basis-tx",
+    "--type",
+    "--doc",
+    "--dims",
+    "--vector-model",
+    "--ref",
+    "--many",
+    "--one",
+    "--unique",
+    "--not-unique",
+    "--nohistory",
+    "--history",
+  ],
+  shape: [
+    "--operation-id",
+    "--if-basis-tx",
+    "--required",
+    "--allowed",
+    "--closed",
+    "--open",
+  ],
+  validate: [],
+  schema: ["--system"],
+  "schema-export": [],
+  "schema-check": [],
+  "schema-apply": ["--operation-id", "--if-basis-tx"],
+  apply: [],
+  snapshot: [],
+  restore: [],
+  undo: ["--operation-id", "--if-basis-tx"],
+  excise: ["--operation-id", "--if-basis-tx"],
+  tail: ["--since", "--follow"],
+  backup: [],
+  doctor: ["--repair"],
+  mcp: ["--write", "--embed-cmd"],
+} as const satisfies Record<string, readonly string[]>;
 
 class UsageError extends Error {
   readonly exitCode: number;
@@ -54,13 +148,19 @@ function usage(message?: string, exitCode = 2): never {
   throw new UsageError(message ?? "usage requested", exitCode);
 }
 
+function isOptionToken(value: string): boolean {
+  return value === "--" || value.startsWith("--") || /^-[A-Za-z]/u.test(value);
+}
+
 function option(args: string[], name: string): string | undefined {
   let result: string | undefined;
   for (let index = 0; index < args.length; index++) {
     const value = args[index];
+    if (value === "--") break;
     if (value === name) {
       const next = args[index + 1];
-      if (next === undefined) usage(`${name} needs a value`);
+      if (next === undefined || isOptionToken(next))
+        usage(`${name} needs a value`);
       result = next;
       args.splice(index, 2);
       index--;
@@ -77,9 +177,10 @@ function options(args: string[], name: string): string[] {
   const result: string[] = [];
   for (let index = 0; index < args.length; index++) {
     const value = args[index];
+    if (value === "--") break;
     if (value === name) {
-      const next = args[index + 1];
-      if (next === undefined) usage(`${name} needs a value`);
+      // validateCommandOptions has already established this value boundary.
+      const next = args[index + 1] as string;
       result.push(next);
       args.splice(index, 2);
       index--;
@@ -94,13 +195,48 @@ function options(args: string[], name: string): string[] {
 
 function flag(args: string[], name: string): boolean {
   let found = false;
-  for (let index = args.length - 1; index >= 0; index--) {
+  for (let index = 0; index < args.length;) {
+    if (args[index] === "--") break;
     if (args[index] === name) {
       found = true;
       args.splice(index, 1);
+    } else {
+      index++;
     }
   }
   return found;
+}
+
+function removeOptionDelimiter(args: string[]): void {
+  const index = args.indexOf("--");
+  if (index >= 0) args.splice(index, 1);
+}
+
+function validateCommandOptions(command: string, args: string[]): void {
+  if (!Object.hasOwn(COMMAND_OPTIONS, command))
+    usage(`unknown command ${JSON.stringify(command)}`);
+  const allowed = new Set<string>(
+    COMMAND_OPTIONS[command as keyof typeof COMMAND_OPTIONS],
+  );
+  for (let index = 0; index < args.length; index++) {
+    const value = args[index] as string;
+    if (value === "--") break;
+    if (!isOptionToken(value)) continue;
+    const equals = value.indexOf("=");
+    const name = equals < 0 ? value : value.slice(0, equals);
+    if (!allowed.has(name))
+      usage(`unknown option ${JSON.stringify(name)} for ${command}`);
+    if (!VALUE_OPTIONS.has(name)) {
+      if (equals >= 0) usage(`${name} does not take a value`);
+      continue;
+    }
+    if (equals < 0) {
+      const next = args[index + 1];
+      if (next === undefined || isOptionToken(next))
+        usage(`${name} needs a value`);
+      index++;
+    }
+  }
 }
 
 function pathEntryExists(path: string, description: string): boolean {
@@ -169,6 +305,8 @@ function positiveInteger(
   context: string,
   allowZero = false,
 ): number {
+  if (!/^[0-9]+$/u.test(value))
+    usage(`${context} ${JSON.stringify(value)} is invalid`);
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < (allowZero ? 0 : 1))
     usage(`${context} ${JSON.stringify(value)} is invalid`);
@@ -289,7 +427,7 @@ async function addBatches(
           transactionOptions.operationId === undefined
             ? "--if-basis-tx"
             : "--operation-id";
-        usage(
+        throw new TypeError(
           `${name} cannot span multiple batches; use idempotent batch operation ids`,
         );
       }
@@ -417,47 +555,17 @@ async function dispatch(
   queryBudget: number,
 ): Promise<void> {
   if (command === "version") {
+    removeOptionDelimiter(args);
     if (args.length > 0) usage("version accepts no arguments");
     process.stdout.write(`${VERSION}\n`);
     return;
   }
-  const commands = new Set([
-    "init",
-    "info",
-    "add",
-    "retract",
-    "get",
-    "tx",
-    "q",
-    "explain",
-    "datoms",
-    "search",
-    "history",
-    "why",
-    "diff",
-    "declare",
-    "shape",
-    "validate",
-    "schema",
-    "schema-export",
-    "schema-check",
-    "schema-apply",
-    "apply",
-    "snapshot",
-    "restore",
-    "undo",
-    "excise",
-    "tail",
-    "backup",
-    "doctor",
-    "mcp",
-  ]);
-  if (!commands.has(command))
-    usage(`unknown command ${JSON.stringify(command)}`);
+  validateCommandOptions(command, args);
 
   if (command === "mcp") {
     const write = flag(args, "--write");
     const embedCommand = option(args, "--embed-cmd");
+    removeOptionDelimiter(args);
     if (args.length > 0) usage(`mcp does not accept ${args.join(" ")}`);
     const db = openSelectedDatabase(
       path,
@@ -504,6 +612,7 @@ async function dispatch(
   };
   try {
     if (command === "init" || command === "info") {
+      removeOptionDelimiter(args);
       if (args.length > 0) usage(`${command} accepts no arguments`);
       emit(database().stats(), machine);
     } else if (command === "add") {
@@ -516,6 +625,7 @@ async function dispatch(
         usage("batch size must be at most 10000");
       const operationIdPrefix = option(args, "--operation-id-prefix");
       const transactionOptions = mutationOptions(args);
+      removeOptionDelimiter(args);
       if (args.length !== 1)
         usage("add needs exactly one JSON argument, @file, or -");
       if (
@@ -544,12 +654,14 @@ async function dispatch(
           payloadList.length > 1 &&
           transactionOptions.operationId !== undefined
         )
-          usage("--operation-id requires one JSON transaction, not NDJSON");
+          throw new TypeError(
+            "--operation-id requires one JSON transaction, not NDJSON",
+          );
         if (
           transactionOptions.ifBasisTx !== undefined &&
           payloadList.length > 1
         )
-          usage(
+          throw new TypeError(
             "--if-basis-tx cannot span multiple transactions; use idempotent operation ids",
           );
         const reports = payloadList.map((payload) =>
@@ -559,6 +671,7 @@ async function dispatch(
       }
     } else if (command === "retract") {
       const transactionOptions = mutationOptions(args);
+      removeOptionDelimiter(args);
       if (args.length < 1 || args.length > 3)
         usage("retract needs entity, optional attribute, and optional value");
       const ref = reference(args[0] as string);
@@ -576,18 +689,21 @@ async function dispatch(
         true,
       );
       const atText = option(args, "--at");
+      removeOptionDelimiter(args);
       if (args.length !== 1) usage("get needs exactly one entity");
       const entity = reference(args[0] as string);
       const at = atText === undefined ? undefined : integer(atText, "at");
       const target = at === undefined ? database() : database().at(at);
       emit(target.entity(entity, depth), machine);
     } else if (command === "tx") {
+      removeOptionDelimiter(args);
       if (args.length !== 1) usage("tx needs exactly one transaction id");
       const transaction = integer(args[0] as string, "transaction");
       emit(database().receipt(transaction), machine);
     } else if (command === "q") {
       const bindingsText = option(args, "--args");
       const atText = option(args, "--at");
+      removeOptionDelimiter(args);
       if (args.length !== 1)
         usage("q needs exactly one query JSON argument or @file");
       const query = parseJson(readArgument(args[0] as string), "query");
@@ -613,6 +729,7 @@ async function dispatch(
       );
     } else if (command === "explain") {
       const bindingsText = option(args, "--args");
+      removeOptionDelimiter(args);
       if (args.length !== 1)
         usage("explain needs exactly one query JSON argument or @file");
       const query = parseJson(readArgument(args[0] as string), "query");
@@ -639,6 +756,7 @@ async function dispatch(
       const componentsText = option(args, "--components");
       const cursor = option(args, "--cursor");
       const limit = positiveInteger(option(args, "--limit") ?? "100", "limit");
+      removeOptionDelimiter(args);
       if (args.length > 1) usage("datoms accepts at most one index name");
       if (source !== "current" && source !== "history")
         usage("datoms --source must be current or history");
@@ -673,10 +791,7 @@ async function dispatch(
       const filterValues = options(args, "--filter").map((item) =>
         parseJson(item, "search filter"),
       );
-      if (args.some((item) => item.startsWith("--")))
-        usage(
-          `unknown search option ${args.find((item) => item.startsWith("--"))}`,
-        );
+      removeOptionDelimiter(args);
       const text = textFlag ?? (args.length > 0 ? args.join(" ") : undefined);
       let embedding =
         vectorText === undefined
@@ -712,6 +827,7 @@ async function dispatch(
         searchOptions.textAttributes = textAttributes;
       emit(graph.search(searchOptions), machine);
     } else if (command === "history" || command === "why") {
+      removeOptionDelimiter(args);
       if (args.length < 1 || args.length > 2)
         usage(`${command} needs entity and optional attribute`);
       const entity = reference(args[0] as string);
@@ -721,6 +837,7 @@ async function dispatch(
           : database().why(entity, args[1]);
       emit(value, machine);
     } else if (command === "diff") {
+      removeOptionDelimiter(args);
       if (args.length !== 2) usage("diff needs start and end transaction ids");
       const start = integer(args[0] as string, "start transaction");
       const end = integer(args[1] as string, "end transaction");
@@ -738,6 +855,7 @@ async function dispatch(
       const notUnique = flag(args, "--not-unique");
       const nohistory = flag(args, "--nohistory");
       const historyFlag = flag(args, "--history");
+      removeOptionDelimiter(args);
       if ((many && one) || (unique && notUnique) || (nohistory && historyFlag))
         usage("declare boolean enable/disable flags are mutually exclusive");
       if (args.length !== 1) usage("declare needs exactly one attribute");
@@ -762,6 +880,7 @@ async function dispatch(
       const allowed = options(args, "--allowed");
       const closed = flag(args, "--closed");
       const open = flag(args, "--open");
+      removeOptionDelimiter(args);
       if (closed && open)
         usage("shape --closed and --open are mutually exclusive");
       if (args.length !== 1) usage("shape needs exactly one shape name");
@@ -780,17 +899,21 @@ async function dispatch(
         machine,
       );
     } else if (command === "validate") {
+      removeOptionDelimiter(args);
       if (args.length !== 1) usage("validate needs exactly one entity");
       const entity = reference(args[0] as string);
       emit(database().validate(entity), machine);
     } else if (command === "schema") {
       const includeSystem = flag(args, "--system");
+      removeOptionDelimiter(args);
       if (args.length > 1) usage("schema accepts at most one attribute prefix");
       emit(database().schema(args[0], { includeSystem }), machine);
     } else if (command === "schema-export") {
+      removeOptionDelimiter(args);
       if (args.length > 0) usage("schema-export accepts no arguments");
       emit(database().schemaManifest(), machine);
     } else if (command === "schema-check") {
+      removeOptionDelimiter(args);
       if (args.length !== 1)
         usage("schema-check needs one JSON argument, @file, or -");
       const manifest = parseJson(
@@ -800,6 +923,7 @@ async function dispatch(
       emit(database().checkSchemaManifest(manifest), machine);
     } else if (command === "schema-apply") {
       const transactionOptions = mutationOptions(args);
+      removeOptionDelimiter(args);
       if (args.length !== 1)
         usage("schema-apply needs one JSON argument, @file, or -");
       const manifest = parseJson(
@@ -811,14 +935,17 @@ async function dispatch(
         machine,
       );
     } else if (command === "apply") {
+      removeOptionDelimiter(args);
       if (args.length > 1) usage("apply accepts at most one event-stream file");
       const lines = inputLines(args[0] ?? "-", MAX_EVENT_BYTES);
       emit(database().applySummary(lines), machine);
     } else if (command === "snapshot") {
+      removeOptionDelimiter(args);
       if (args.length > 0)
         usage("snapshot writes to stdout and accepts no arguments");
       database().snapshot(process.stdout);
     } else if (command === "restore") {
+      removeOptionDelimiter(args);
       if (args.length > 1) usage("restore accepts at most one snapshot file");
       const lines = inputLines(args[0] ?? "-", MAX_SNAPSHOT_LINE_BYTES);
       const graph = database();
@@ -826,6 +953,7 @@ async function dispatch(
       emit({ ok: true, basis_tx: graph._basisTx() }, machine);
     } else if (command === "undo") {
       const transactionOptions = mutationOptions(args);
+      removeOptionDelimiter(args);
       if (args.length !== 1) usage("undo needs exactly one transaction id");
       const transaction = integer(args[0] as string, "transaction");
       emit(
@@ -841,6 +969,7 @@ async function dispatch(
       );
     } else if (command === "excise") {
       const transactionOptions = mutationOptions(args);
+      removeOptionDelimiter(args);
       if (
         transactionOptions.operationId === undefined ||
         transactionOptions.ifBasisTx === undefined
@@ -861,6 +990,7 @@ async function dispatch(
         "since transaction",
       );
       const keepFollowing = flag(args, "--follow");
+      removeOptionDelimiter(args);
       if (args.length > 0) usage("tail accepts only --since and --follow");
       const graph = database();
       if (keepFollowing) {
@@ -870,10 +1000,12 @@ async function dispatch(
         graph.tail(since, process.stdout);
       }
     } else if (command === "backup") {
+      removeOptionDelimiter(args);
       if (args.length !== 1) usage("backup needs exactly one destination");
       await database().backup(args[0] as string);
       emit({ path: args[0] }, machine);
     } else if (command === "doctor") {
+      removeOptionDelimiter(args);
       if (args.length > 0) usage("doctor accepts only --repair");
       emit(database().doctor({ repair }), machine);
     }
@@ -903,6 +1035,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const help = flag(args, "--help") || flag(args, "-h");
     if (help) usage(undefined, 0);
+    if (args[0] === "--") args.shift();
     if (args.length === 0) usage();
     const command = args.shift() as string;
     await dispatch(

@@ -265,6 +265,107 @@ func TestCLIRejectsInvalidArityBeforeOpeningDatabase(t *testing.T) {
 	}
 }
 
+func TestCLIRejectsSemanticUsageBeforeOpeningDatabase(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "invalid transaction", args: []string{"tx", "not-an-int"}},
+		{name: "invalid diff start", args: []string{"diff", "not-an-int", "64"}},
+		{name: "invalid diff end", args: []string{"diff", "64", "not-an-int"}},
+		{name: "invalid undo transaction", args: []string{"undo", "not-an-int"}},
+		{name: "conflicting cardinality", args: []string{"declare", "person/name", "--many", "--one"}},
+		{name: "conflicting uniqueness", args: []string{"declare", "person/name", "--unique", "--not-unique"}},
+		{name: "conflicting history", args: []string{"declare", "person/name", "--nohistory", "--history"}},
+		{name: "conflicting shape closure", args: []string{"shape", "person", "--closed", "--open"}},
+		{name: "missing excise options", args: []string{"excise", "person"}},
+		{name: "zero batch size", args: []string{"add", `{}`, "--batch-size", "0"}},
+		{name: "oversized batch", args: []string{"add", `{}`, "--batch-size", "10001"}},
+		{name: "conflicting operation ids", args: []string{"add", `{}`, "--operation-id", "one", "--operation-id-prefix", "many"}},
+		{name: "prefix without batching", args: []string{"add", `{}`, "--operation-id-prefix", "many"}},
+		{name: "conflicting MCP modes", args: []string{"mcp", "--write", "--read-only"}},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			t.Chdir(directory)
+			unsetFGraphDBForTest(t)
+			if err := os.WriteFile(legacyDefaultDatabasePath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := runCLIForTest(t, "", test.args...)
+			var exit cli.ExitCoder
+			if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+				t.Fatalf("%v error = %v, want usage exit 2 before database access", test.args, err)
+			}
+			contents, readErr := os.ReadFile(legacyDefaultDatabasePath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(contents) != 0 {
+				t.Fatalf("%v initialized the legacy database to %d bytes", test.args, len(contents))
+			}
+			if _, statErr := os.Lstat(defaultDatabasePath); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("%v created the new default path: %v", test.args, statErr)
+			}
+		})
+	}
+}
+
+func TestCLIRejectsOutOfRangeTransactionsBeforeOpeningDatabase(t *testing.T) {
+	cases := [][]string{
+		{"tx", "9223372036854775808"},
+		{"tx", "-9223372036854775809"},
+		{"undo", "9223372036854775808"},
+		{"diff", "9223372036854775808", "64"},
+		{"diff", "64", "-9223372036854775809"},
+	}
+
+	for _, args := range cases {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			directory := t.TempDir()
+			t.Chdir(directory)
+			unsetFGraphDBForTest(t)
+			if err := os.WriteFile(legacyDefaultDatabasePath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := runCLIForTest(t, "", args...)
+			if !errors.Is(err, ErrType) {
+				t.Fatalf("%v error = %v, want TypeError before database access", args, err)
+			}
+			contents, readErr := os.ReadFile(legacyDefaultDatabasePath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(contents) != 0 {
+				t.Fatalf("%v initialized the legacy database to %d bytes", args, len(contents))
+			}
+			if _, statErr := os.Lstat(defaultDatabasePath); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("%v created the new default path: %v", args, statErr)
+			}
+		})
+	}
+}
+
+func TestValidatedCLIArgumentsRequirePreOpenValidation(t *testing.T) {
+	cmd := &cli.Command{Name: "tx"}
+	if _, err := loadValidatedCLIArguments(cmd); !errors.Is(err, ErrFormat) {
+		t.Fatalf("missing validation metadata error = %v, want FormatError", err)
+	}
+
+	storeValidatedCLIArguments(cmd, 65, 66)
+	validated, err := loadValidatedCLIArguments(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.firstTransaction != 65 || validated.secondTransaction != 66 {
+		t.Fatalf("validated arguments = %+v, want transactions 65 and 66", validated)
+	}
+}
+
 func TestCLIRejectsMalformedHistoricalSelectorBeforeOpeningDatabase(t *testing.T) {
 	directory := t.TempDir()
 	t.Chdir(directory)

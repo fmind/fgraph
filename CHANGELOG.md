@@ -17,7 +17,8 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ### Fixed
 
-- Preserve explicit global `--db` precedence in the Python CLI, reject explicit empty paths consistently, and validate Go positional arity before any database access.
+- Preserve explicit global `--db` precedence in the Python CLI, reject explicit empty paths consistently, and validate all static CLI usage errors before any database access.
+- Reject unknown TypeScript options and ambiguous integer spellings, while reporting input-dependent batch constraints as typed runtime errors instead of late usage failures.
 - Place read-latency value labels beside their median markers instead of at the observed maximum whiskers.
 
 ## [1.1.0] - 2026-08-28

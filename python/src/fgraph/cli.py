@@ -24,7 +24,7 @@ from fgraph.errors import FGraphError
 from fgraph.errors import TypeError as FGraphTypeError
 from fgraph.jsonio import loads
 from fgraph.store import DEFAULT_QUERY_BUDGET, GENESIS_TX, Db
-from fgraph.values import _canonical_json_document
+from fgraph.values import INT64_MAX, INT64_MIN, _canonical_json_document
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False, help="Temporal facts in one SQLite file.")
 
@@ -153,6 +153,28 @@ def _reference(value: str) -> str | int:
         return value
 
 
+def _transaction_integer(value: int, *, context: str) -> int:
+    if not INT64_MIN <= value <= INT64_MAX:
+        raise FGraphTypeError(f"{context} {value!r} is outside the signed 64-bit integer range")
+    return value
+
+
+def _exclusive_flags(
+    positive: bool,
+    negative: bool,
+    *,
+    positive_name: str,
+    negative_name: str,
+) -> bool | None:
+    if positive and negative:
+        raise TyperUsageError(f"{positive_name} and {negative_name} are mutually exclusive")
+    if positive:
+        return True
+    if negative:
+        return False
+    return None
+
+
 def _read_argument(value: str) -> str:
     if value == "-":
         return sys.stdin.read()
@@ -260,9 +282,9 @@ def add(
 ) -> None:
     """Transact inline JSON, @file JSON, or stdin JSON/NDJSON with '-'."""
     if operation_id is not None and operation_id_prefix is not None:
-        raise FGraphTypeError("choose --operation-id for one transaction or --operation-id-prefix for batches")
+        raise TyperUsageError("choose --operation-id for one transaction or --operation-id-prefix for batches")
     if operation_id_prefix is not None and batch_size is None:
-        raise FGraphTypeError("--operation-id-prefix requires --batch-size")
+        raise TyperUsageError("--operation-id-prefix requires --batch-size")
     if batch_size is not None:
         _add_batches(
             data,
@@ -278,6 +300,8 @@ def add(
     payloads = _payloads(data, context="add input")
     if operation_id is not None and len(payloads) > 1:
         raise FGraphTypeError("--operation-id requires one JSON transaction, not NDJSON")
+    if if_basis_tx is not None and len(payloads) > 1:
+        raise FGraphTypeError("--if-basis-tx cannot span multiple transactions; use idempotent operation ids")
     with _open(db) as graph:
         reports = [
             graph.transact(
@@ -517,6 +541,7 @@ def transaction_receipt(
     json_output: JsonOption = False,
 ) -> None:
     """Print one durable operation/event receipt."""
+    transaction = _transaction_integer(transaction, context="transaction id")
     with _open(db, read_only=True) as graph:
         _emit(graph.receipt(transaction), json_output)
 
@@ -524,6 +549,8 @@ def transaction_receipt(
 @app.command()
 def diff(t1: int, t2: int, db: DbOption = None, json_output: JsonOption = False) -> None:
     """Print facts asserted/retracted in a transaction window."""
+    t1 = _transaction_integer(t1, context="start transaction")
+    t2 = _transaction_integer(t2, context="end transaction")
     with _open(db, read_only=True) as graph:
         _emit(graph.diff(t1, t2), json_output)
 
@@ -533,9 +560,12 @@ def declare(
     attr: str,
     type: str | None = typer.Option(None, "--type"),  # noqa: A002
     ref: bool = False,
-    many: bool | None = typer.Option(None, "--many/--one"),
-    unique: bool | None = typer.Option(None, "--unique/--not-unique"),
-    nohistory: bool | None = typer.Option(None, "--nohistory/--history"),
+    many: bool = typer.Option(False, "--many"),
+    one: bool = typer.Option(False, "--one"),
+    unique: bool = typer.Option(False, "--unique"),
+    not_unique: bool = typer.Option(False, "--not-unique"),
+    nohistory: bool = typer.Option(False, "--nohistory"),
+    history: bool = typer.Option(False, "--history"),
     dims: int | None = None,
     doc: str | None = None,
     vector_model: Annotated[str | None, typer.Option("--vector-model")] = None,
@@ -545,15 +575,28 @@ def declare(
     json_output: JsonOption = False,
 ) -> None:
     """Declare optional attribute behavior."""
+    many_value = _exclusive_flags(many, one, positive_name="--many", negative_name="--one")
+    unique_value = _exclusive_flags(
+        unique,
+        not_unique,
+        positive_name="--unique",
+        negative_name="--not-unique",
+    )
+    nohistory_value = _exclusive_flags(
+        nohistory,
+        history,
+        positive_name="--nohistory",
+        negative_name="--history",
+    )
     with _open(db) as graph:
         _emit(
             graph.declare(
                 attr,
                 type=type,
                 ref=ref,
-                many=many,
-                unique=unique,
-                nohistory=nohistory,
+                many=many_value,
+                unique=unique_value,
+                nohistory=nohistory_value,
                 dims=dims,
                 doc=doc,
                 vector_model=vector_model,
@@ -569,20 +612,27 @@ def shape_command(
     name: str,
     required: Annotated[list[str] | None, typer.Option("--required")] = None,
     allowed: Annotated[list[str] | None, typer.Option("--allowed")] = None,
-    closed: Annotated[bool, typer.Option("--closed/--open")] = False,
+    closed: Annotated[bool, typer.Option("--closed")] = False,
+    open_shape: Annotated[bool, typer.Option("--open")] = False,
     operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,
     if_basis_tx: Annotated[int | None, typer.Option("--if-basis-tx")] = None,
     db: DbOption = None,
     json_output: JsonOption = False,
 ) -> None:
     """Create or replace a required/allowed attribute shape."""
+    closed_value = _exclusive_flags(
+        closed,
+        open_shape,
+        positive_name="--closed",
+        negative_name="--open",
+    )
     with _open(db) as graph:
         _emit(
             graph.declare_shape(
                 name,
                 required=required or (),
                 allowed=allowed or (),
-                closed=closed,
+                closed=closed_value or False,
                 operation_id=operation_id,
                 if_basis_tx=if_basis_tx,
             ),
@@ -684,6 +734,7 @@ def undo(
     json_output: JsonOption = False,
 ) -> None:
     """Apply an audited compensating transaction."""
+    tx = _transaction_integer(tx, context="transaction id")
     with _open(db) as graph:
         _emit(
             graph.undo(

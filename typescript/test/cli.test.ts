@@ -146,6 +146,76 @@ describe("CLI", () => {
     }
   });
 
+  it("rejects semantic usage before inspecting either default path", async () => {
+    const directory = temporaryDirectory();
+    const previousDirectory = process.cwd();
+    delete process.env.FGRAPH_DB;
+    process.chdir(directory);
+    try {
+      expect((await invoke("init", "--db", "fgraph.db")).code).toBe(0);
+      writeFileSync("facts.fgraph", "");
+
+      const cases = [
+        ["get", "--definitely-invalid"],
+        ["get", "-x"],
+        ["datoms", "--definitely-invalid"],
+        ["history", "entity", "--definitely-invalid"],
+        ["declare", "--definitely-invalid"],
+        ["declare", "person/name", "--doc", "--definitely-invalid"],
+        ["shape", "--definitely-invalid"],
+        ["validate", "--definitely-invalid"],
+        ["schema", "--definitely-invalid"],
+        ["schema", "--system=true"],
+        ["apply", "--definitely-invalid"],
+        ["restore", "--definitely-invalid"],
+        ["backup", "--definitely-invalid"],
+        ["get", "entity", "--depth", "1e0"],
+        ["get", "entity", "--depth="],
+        ["datoms", "--limit", "1.0"],
+        ["search", "needle", "--k", "1e0"],
+        ["search", "needle", "--expand="],
+        ["add", "{}", "--batch-size", "1.0"],
+        ["info", "--query-budget", "1e0"],
+      ];
+      for (const args of cases) {
+        expect(await invoke(...args), args.join(" ")).toMatchObject({
+          code: 2,
+        });
+        expect(statSync("facts.fgraph").size).toBe(0);
+      }
+    } finally {
+      process.chdir(previousDirectory);
+    }
+  });
+
+  it("honors the end-of-options delimiter for named identities", async () => {
+    const directory = temporaryDirectory();
+    const database = join(directory, "hyphenated.fgraph");
+    expect((await invoke("--db", database, "init")).code).toBe(0);
+    expect(
+      (
+        await invoke(
+          "--db",
+          database,
+          "add",
+          '[{"id":"-alice","profile/name":"Alice"},{"id":"--db","profile/name":"Database"},{"id":"--depth","profile/name":"Depth"}]',
+        )
+      ).code,
+    ).toBe(0);
+
+    for (const identity of ["-alice", "--db", "--depth"]) {
+      expect(
+        await invoke("--db", database, "get", "--", identity),
+        identity,
+      ).toMatchObject({ code: 0 });
+    }
+    expect(
+      await invoke("--db", database, "search", "--", "--filter"),
+    ).toMatchObject({
+      code: 0,
+    });
+  });
+
   it("executes the complete bounded command surface", async () => {
     const directory = temporaryDirectory();
     const database = join(directory, "graph.db");
@@ -900,10 +970,16 @@ describe("CLI", () => {
         "--db",
         database,
       ),
-    ).toMatchObject({ code: 2 });
+    ).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("TypeError:"),
+    });
     expect(
       await invoke("add", `@${batch}`, "--if-basis-tx", "64", "--db", database),
-    ).toMatchObject({ code: 2 });
+    ).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("TypeError:"),
+    });
     expect(
       await invoke(
         "add",
@@ -915,7 +991,10 @@ describe("CLI", () => {
         "--db",
         database,
       ),
-    ).toMatchObject({ code: 2 });
+    ).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("TypeError:"),
+    });
     expect(
       await invoke(
         "add",
@@ -961,7 +1040,10 @@ describe("CLI", () => {
         "--db",
         database,
       ),
-    ).toMatchObject({ code: 2 });
+    ).toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("TypeError:"),
+    });
     const batchedArguments = [
       "add",
       `@${batch}`,
