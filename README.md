@@ -208,19 +208,19 @@ At 100,000 entities:
 
 | Runtime    | Ingest entities/s | Point get | Scalar filter | Connected join | Keyword search | Exact vector search |
 | ---------- | ----------------: | --------: | ------------: | -------------: | -------------: | ------------------: |
-| Python     |             4,306 |    170 ms |        179 ms |         218 ms |         585 ms |              582 ms |
-| Go         |             5,185 |     93 ms |         96 ms |         155 ms |         520 ms |              487 ms |
-| TypeScript |             4,816 |    179 ms |        157 ms |         198 ms |         525 ms |              411 ms |
+| Python     |             4,280 |    176 ms |        186 ms |         224 ms |         600 ms |              573 ms |
+| Go         |             5,324 |    102 ms |        109 ms |         160 ms |         516 ms |              481 ms |
+| TypeScript |             4,908 |    148 ms |        216 ms |         233 ms |         547 ms |              430 ms |
 
 | Runtime    | Snapshot | Restore | Event tail | Event apply |
 | ---------- | -------: | ------: | ---------: | ----------: |
-| Python     |   5.85 s | 26.54 s |     2.19 s |     34.53 s |
-| Go         |   4.63 s | 17.37 s |     2.81 s |     21.95 s |
-| TypeScript |  11.27 s | 16.53 s |     2.62 s |     16.61 s |
+| Python     |   6.38 s | 25.11 s |     2.32 s |     34.15 s |
+| Go         |   4.59 s | 17.34 s |     3.31 s |     22.01 s |
+| TypeScript |  10.63 s | 15.40 s |     2.86 s |     16.79 s |
 
 The common logical state occupied 92.02 MiB; its snapshot was 60.53 MiB and its event stream 22.52 MiB. Vector search is intentionally exact over the 5,000 vectors, not ANN. These measurements validate the tested 100k envelope, not millions of entities or a service-level objective; SQLite build, filesystem, runtime startup, and hardware affect the numbers.
 
-This release run was generated on 2026-08-29 from clean source commit [`cc0e750`](https://github.com/fmind/fgraph/commit/cc0e75000c9ddf62b8a9660e3d24f0e4d4c6dd76) and source digest `sha256:47feee93d04f9715a555069eb6d6fa1dd435990a9d5ea2140abe200095dc5c62`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
+This release run was generated on 2026-08-29 from clean source commit [`6ff1ef0`](https://github.com/fmind/fgraph/commit/6ff1ef04f2f86423bc955f7a16afcfca22cbba3e) and source digest `sha256:3af1d49318bccbd06b679a3ad01e212572be874625c6a57c59aeae60d2e17e18`. The raw metadata records the exact runtime, SQLite, platform, workload, and clean-tree provenance.
 
 <!-- benchmark-results:end -->
 
