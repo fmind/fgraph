@@ -15,8 +15,8 @@ from typing import Annotated, Any, TextIO
 
 import click
 import typer
+from typer import Exit as TyperExit
 from typer._click.core import ParameterSource
-from typer._click.exceptions import Exit as TyperExit
 from typer._click.exceptions import UsageError as TyperUsageError
 
 import fgraph

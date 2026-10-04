@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from typer import Exit as TyperExit
 from typer._click._compat import strip_ansi
-from typer._click.exceptions import Exit as TyperExit
 from typer.testing import CliRunner
 
 import fgraph
