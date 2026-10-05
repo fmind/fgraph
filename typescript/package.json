@@ -54,18 +54,18 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.1.0",
+    "@modelcontextprotocol/server": "2.3.0",
     "better-sqlite3": "13.0.3",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
-    "@types/node": "24.13.6",
-    "@vitest/coverage-v8": "5.0.1",
-    "oxlint": "1.85.0",
+    "@types/node": "24.19.1",
+    "@vitest/coverage-v8": "5.0.3",
+    "oxlint": "1.86.0",
     "prettier": "3.9.9",
     "typescript": "7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.3"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true
