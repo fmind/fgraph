@@ -28,12 +28,12 @@ fgraph = "fgraph.cli:main"
 [dependency-groups]
 dev = [
   "build==1.6.1",
-  "hypothesis==6.168.0",
+  "hypothesis==6.168.3",
   "pip-audit==2.10.1",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
-  "ruff==0.16.7",
-  "ty==0.0.80",
+  "ruff==0.16.10",
+  "ty==0.0.84",
   "validate-pyproject==0.26",
 ]
 
