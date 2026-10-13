@@ -402,6 +402,51 @@ func TestTransactionDiffSchemaAndDeclarationValidation(t *testing.T) {
 	}
 }
 
+func TestUniqueTransactionMetadataConflictRollsBackTheWholeWrite(t *testing.T) {
+	ctx := context.Background()
+	db := fixedDB(t, ":memory:")
+	if _, err := db.Declare(ctx, "audit/token", Type("text"), Unique()); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := db.Transact(ctx, E{"id": "committed", "item/value": "original"},
+		WithTxFacts(E{"audit/token": "occupied"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := db.Receipt(ctx, committed.Tx)
+	if err != nil || len(receipt.Facts) != 1 || receipt.Facts[0].A != "audit/token" || receipt.Facts[0].V != "occupied" {
+		t.Fatalf("unique transaction metadata receipt = %+v, %v", receipt, err)
+	}
+	var before, after bytes.Buffer
+	if err := db.Snapshot(ctx, &before); err != nil {
+		t.Fatal(err)
+	}
+	const allocationQuery = `SELECT
+		(SELECT value FROM fgraph_meta WHERE key='next_id'),
+		(SELECT COUNT(*) FROM fgraph_ids)`
+	var nextBefore, identitiesBefore, nextAfter, identitiesAfter int64
+	if err := db.store.sql.QueryRowContext(ctx, allocationQuery).Scan(&nextBefore, &identitiesBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Transact(ctx, E{"id": "rejected", "new/attribute": "must roll back"},
+		WithTxFacts(E{"audit/token": "occupied"})); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate transaction metadata error = %v, want Conflict", err)
+	}
+	if err := db.Snapshot(ctx, &after); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before.Bytes(), after.Bytes()) {
+		t.Fatal("rejected transaction metadata changed the retained snapshot")
+	}
+	if err := db.store.sql.QueryRowContext(ctx, allocationQuery).Scan(&nextAfter, &identitiesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if nextAfter != nextBefore || identitiesAfter != identitiesBefore {
+		t.Fatalf("rejected transaction leaked allocations: next_id %d -> %d, identities %d -> %d",
+			nextBefore, nextAfter, identitiesBefore, identitiesAfter)
+	}
+}
+
 func TestTransactionMetadataAndTimestampFailures(t *testing.T) {
 	ctx := context.Background()
 	db := fixedDB(t, ":memory:")

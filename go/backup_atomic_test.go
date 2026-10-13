@@ -130,6 +130,53 @@ func TestCanceledBackupLeavesNoArtifacts(t *testing.T) {
 	}
 }
 
+func TestBackupCanceledAfterFirstPageCleansUpAndCanRetry(t *testing.T) {
+	dir := t.TempDir()
+	source := fixedDB(t, filepath.Join(dir, "source.db"))
+	if _, err := source.Transact(context.Background(), E{"id": "preserved", "item/value": "original"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	copiedPage := false
+	step := func(backup *sqlite.Backup, _ int32) (bool, error) {
+		// Copy one real page so cancellation occurs during an unfinished backup.
+		more, err := backup.Step(1)
+		if err == nil && more {
+			copiedPage = true
+			cancel()
+		}
+		return more, err
+	}
+	target := filepath.Join(dir, "backup.db")
+	backupErr := source.backup(ctx, target, step)
+	if !copiedPage || !errors.Is(backupErr, ErrFormat) || !errors.Is(backupErr, context.Canceled) {
+		t.Fatalf("partially copied backup error = %v, copied page = %v", backupErr, copiedPage)
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canceled backup published target: %v", err)
+	}
+	temporary, err := filepath.Glob(filepath.Join(dir, ".backup.db.*.fgraph-backup"))
+	if err != nil || len(temporary) != 0 {
+		t.Fatalf("canceled backup temporary files = %v, %v", temporary, err)
+	}
+	if retryErr := source.Backup(context.Background(), target); retryErr != nil {
+		t.Fatalf("backup retry after cancellation: %v", retryErr)
+	}
+	backup, err := Open(target, WithReadOnly())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeTest(t, backup)
+	entity, err := backup.Entity(context.Background(), "preserved")
+	if err != nil || entity["item/value"] != "original" {
+		t.Fatalf("retried backup entity = %#v, %v", entity, err)
+	}
+	if report, err := backup.Doctor(context.Background()); err != nil || !report.OK {
+		t.Fatalf("retried backup Doctor() = %+v, %v", report, err)
+	}
+}
+
 func TestBackupOnNilDatabaseReturnsTypedError(t *testing.T) {
 	var db *DB
 	target := filepath.Join(t.TempDir(), "backup.db")

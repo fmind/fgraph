@@ -8,7 +8,7 @@ Install the stable module:
 go get github.com/fmind/fgraph/go@v1.2.0
 ```
 
-For contribution work, use the repository checkout instead.
+For contribution work, use the repository checkout instead. Checks and release builds use the security-patched Go toolchain pinned in [`mise.toml`](../mise.toml).
 
 From the repository root:
 
