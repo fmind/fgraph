@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -190,7 +190,7 @@ def _read_argument(value: str) -> str:
 
 
 @contextmanager
-def _input_lines(source: str, *, context: str) -> Iterator[TextIO]:
+def _input_lines(source: str, *, context: str) -> Generator[TextIO]:
     if source == "-":
         yield sys.stdin
         return
@@ -218,7 +218,7 @@ def _payloads(value: str, *, context: str) -> list[Any]:
 
 
 @contextmanager
-def _batch_payloads(value: str, *, context: str) -> Iterator[Iterator[Any]]:
+def _batch_payloads(value: str, *, context: str) -> Generator[Iterator[Any]]:
     stream: TextIO
     close_stream = False
     if value == "-":
