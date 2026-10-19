@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.12.5,<0.13.0"]
+requires = ["uv_build>=0.12.5,<0.14.0"]
 build-backend = "uv_build"
 
 [project]
@@ -28,12 +28,12 @@ fgraph = "fgraph.cli:main"
 [dependency-groups]
 dev = [
   "build==1.6.1",
-  "hypothesis==6.168.5",
+  "hypothesis==6.170.0",
   "pip-audit==2.10.1",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
-  "ruff==0.16.10",
-  "ty==0.0.85",
+  "ruff==0.17.1",
+  "ty==0.0.88",
   "validate-pyproject==0.26",
 ]
 
