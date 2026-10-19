@@ -1,29 +1,31 @@
+# Docs: https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+# Security updates only: `open-pull-requests-limit: 0` disables version updates, while
+# Dependabot still opens one grouped fix PR per ecosystem when an alert has a patched
+# release. `schedule` is required by the schema; it only paces the disabled version updates.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Paris
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
     groups:
-      actions:
+      actions-security:
+        applies-to: security-updates
         patterns: ["*"]
-    open-pull-requests-limit: 2
-
   - package-ecosystem: uv
     directory: /python
     schedule:
       interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Paris
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
     groups:
-      python:
+      python-security:
+        applies-to: security-updates
         patterns: ["*"]
-    open-pull-requests-limit: 2
-
   - package-ecosystem: gomod
     directories:
       - /go
@@ -31,26 +33,21 @@ updates:
       - /docs
     schedule:
       interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Paris
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
     groups:
-      go:
+      go-security:
+        applies-to: security-updates
         patterns: ["*"]
-    open-pull-requests-limit: 2
-
   - package-ecosystem: npm
     directory: /typescript
     schedule:
       interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Paris
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
     groups:
-      typescript:
+      typescript-security:
+        applies-to: security-updates
         patterns: ["*"]
-    # Node types intentionally track the minimum supported Node major.
-    ignore:
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-    open-pull-requests-limit: 2
