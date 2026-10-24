@@ -4,6 +4,10 @@ All notable user-visible changes are documented here. fgraph follows [Semantic V
 
 ## Unreleased
 
+### Security
+
+- Require zod 4.6.6 in the TypeScript package to fix unbounded memory use when validating oversized constrained collections (GHSA-mrhx-c7xc-m3w5).
+
 ## [1.2.0] - 2026-08-29
 
 ### Added
